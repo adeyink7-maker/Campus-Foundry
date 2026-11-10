@@ -1,0 +1,11 @@
+{
+  "name": "Campus Foundry",
+  "description": "The collegiate venture launchpad and startup incubator connecting student founders, co-founders, alumni mentors, and micro-grants.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

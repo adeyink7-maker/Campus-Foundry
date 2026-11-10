@@ -1,0 +1,3254 @@
+CAMPUS FOUNDRY RESTORE - 6 FILES IN ONE TEXT FILE
+Below are six files. Each one begins with a line made of five equals signs, the word FILE, a colon and the path, and ends with a line saying END FILE between equals signs.
+Save the text between those two lines to the given path, exactly as written. Do not save the marker lines themselves.
+
+=====FILE: src/mobile/navigation/RootNavigator.tsx=====
+/**
+ * CampusFoundry Mobile - Root Navigation Architecture
+ * Cross-platform stack and tab navigator for Expo / React Native Web.
+ * Fully integrates 100% of CampusFoundry web features:
+ * - 📰 Campus Feed (Live posts, reactions, comments, 24h stories tray, level filters)
+ * - 🛍️ Marketplace & Trades (Student businesses, search, campus zone filters, WhatsApp link, Add to Cart)
+ * - 🏛️ Campus Life Hub (SUG Politics & Voting, Academics & Past Questions, Clubs & Tech Hubs, Campus News, Interactive Map)
+ * - 💬 Real-Time Chats (E2EE chats, message requests, department broadcast channels, offline queue)
+ * - 🎓 Student ID & Dashboard (Digital UNILORIN ID card, Biometrics Face ID/Touch ID, offline SQLite cache diagnostics, claimed trades)
+ * - ⚡ Quick Action FAB & Mobile Action Sheet
+ * - 📱 Device Frame Toggle (Phone Frame vs Edge-to-Edge Fullscreen vs Web view)
+ */
+
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { fetchUserProfileByIdFromSupabase } from '../../services/supabase';
+import { 
+  Sparkles, 
+  Plus, 
+  Search, 
+  Filter, 
+  ShoppingBag, 
+  MessageSquare, 
+  User, 
+  Bell, 
+  ChevronRight, 
+  ShieldCheck, 
+  Heart, 
+  Share2, 
+  MapPin, 
+  CheckCircle2, 
+  Phone, 
+  ExternalLink, 
+  RefreshCw, 
+  Laptop, 
+  Lock, 
+  X, 
+  PlusCircle, 
+  ArrowLeft, 
+  Send, 
+  BookOpen, 
+  Vote, 
+  Users, 
+  Newspaper, 
+  Compass, 
+  Trash2, 
+  Shield, 
+  Fingerprint,
+  Store,
+  Camera,
+  Layers,
+  ArrowRight,
+  TrendingUp,
+  Award,
+  AlertCircle,
+  Home,
+  Building2
+} from 'lucide-react';
+
+import { 
+  CampusPost, 
+  CampusSnap, 
+  StudentBusiness, 
+  StudentLevel, 
+  AppModule, 
+  UserRole, 
+  AppUser 
+} from '../../types';
+import { useAuth } from '../../context/AuthContext';
+import { useCart } from '../../context/CartContext';
+import { useChat } from '../../context/ChatContext';
+import { useMarketplaceChat } from '../../context/MarketplaceChatContext';
+import { CURRENT_ACADEMIC_SESSION } from '../../constants/academic';
+import { StudentIDCard } from '../../components/playercard';
+import { UserProfileView } from '../../components/UserProfileView';
+
+import { StoriesViewerScreen, MobileStoryItem } from '../screens/StoriesViewerScreen';
+import { RealTimeChatScreen } from '../screens/RealTimeChatScreen';
+import { BiometricsService } from '../auth/BiometricsService';
+import GlobalSearchModal from '../../components/GlobalSearchModal';
+import PeopleDiscoveryModal from '../../components/PeopleDiscoveryModal';
+
+// Web feature views integrated directly into mobile tabs
+import { PoliticsCampaignView } from '../../components/PoliticsCampaignView';
+import { FacultiesDeptsView } from '../../components/FacultiesDeptsView';
+import { ClubsDirectoryView } from '../../components/ClubsDirectoryView';
+import { CampusNewsView } from '../../components/CampusNewsView';
+import { CampusMapView } from '../../components/CampusMapView';
+import { PostCard } from '../../components/PostCard';
+import { BusinessCard } from '../../components/BusinessCard';
+import { MyStoreModal } from '../../components/MyStoreModal';
+import { ProfileAvatarSheet } from '../../components/ProfileAvatarSheet';
+import { uploadMedia } from '../../services/supabase';
+
+export type MobileTab = 'feed' | 'market' | 'campus' | 'alerts' | 'chats' | 'profile';
+export type CampusSubHub = 'politics' | 'academics' | 'clubs' | 'news' | 'map' | 'idcard' | null;
+
+export interface CampusAlertItem {
+  id: string;
+  type: 'like' | 'comment' | 'follow' | 'dm' | 'verification' | 'announcement';
+  title: string;
+  description: string;
+  timestamp: string;
+  isUnread: boolean;
+  avatarUrl?: string;
+}
+
+export interface RootNavigatorProps {
+  businesses?: StudentBusiness[];
+  posts?: CampusPost[];
+  snaps?: CampusSnap[];
+  selectedLevel?: StudentLevel | 'All';
+  onSelectLevel?: (lvl: StudentLevel | 'All') => void;
+  onLikeToggle?: (postId: string) => void;
+  onAddComment?: (postId: string, commentText: string) => void;
+  onDeletePost?: (postId: string) => void;
+  onSelectSnap?: (snap: CampusSnap) => void;
+  onOpenCreateSnap?: () => void;
+  onOpenCreatePost?: () => void;
+  onSelectBusiness?: (business: StudentBusiness) => void;
+  onOpenCreateBusiness?: () => void;
+  onOpenBecomeTrader?: () => void;
+  onClaimBusiness?: (bizId: string) => void;
+  onDeleteBusiness?: (bizId: string) => void;
+  onUpdateBusiness?: (updated: StudentBusiness) => void;
+  onOpenTraderProfile?: (business: StudentBusiness) => void;
+  onOpenAuth?: (mode?: 'signin' | 'signup' | 'unilorin-otp', role?: UserRole) => void;
+  showToast?: (msg: string, type?: 'error' | 'success' | 'info') => void;
+  onSwitchToWeb?: () => void;
+  onViewUserProfile?: (authorId?: string, authorDetails?: any) => void;
+  targetProfileUser?: AppUser | null;
+  onClearTargetUser?: () => void;
+  isLoadingBusinesses?: boolean;
+  businessesError?: string | null;
+  onRetryBusinesses?: () => void;
+  onOpenAdminPages?: () => void;
+  isLoadingPosts?: boolean;
+  postsError?: string | null;
+  onRetryPosts?: () => void;
+  isLoadingSnaps?: boolean;
+  snapsError?: string | null;
+  onRetrySnaps?: () => void;
+}
+
+export const RootNavigator: React.FC<RootNavigatorProps> = ({
+  businesses = [],
+  posts = [],
+  snaps = [],
+  selectedLevel = 'All',
+  onSelectLevel = () => {},
+  onLikeToggle = () => {},
+  onAddComment = () => {},
+  onDeletePost,
+  onSelectSnap = () => {},
+  onOpenCreateSnap = () => {},
+  onOpenCreatePost = () => {},
+  onSelectBusiness = () => {},
+  onOpenCreateBusiness = () => {},
+  onOpenBecomeTrader,
+  onClaimBusiness,
+  onDeleteBusiness,
+  onUpdateBusiness,
+  onOpenTraderProfile,
+  onOpenAuth = () => {},
+  showToast = () => {},
+  onSwitchToWeb,
+  onViewUserProfile,
+  targetProfileUser = null,
+  onClearTargetUser,
+  isLoadingBusinesses = false,
+  businessesError = null,
+  onRetryBusinesses,
+  onOpenAdminPages,
+  isLoadingPosts = false,
+  postsError = null,
+  onRetryPosts,
+  isLoadingSnaps = false,
+  snapsError = null,
+  onRetrySnaps,
+}) => {
+  const { currentUser, signOut, toggleFollowUser, updateUser } = useAuth();
+  const { totalItemCount, setIsCartOpen } = useCart();
+  const { unreadTotalCount, pendingRequestsCount, conversations, openChatWithBusiness } = useChat();
+  const { conversations: marketplaceConversations, openMarketplaceChat } = useMarketplaceChat();
+
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const activeTab = useMemo<MobileTab>(() => {
+    if (location.pathname.startsWith('/market')) return 'market';
+    if (location.pathname.startsWith('/hubs') || location.pathname.startsWith('/campus')) return 'campus';
+    if (location.pathname.startsWith('/alerts') || location.pathname.startsWith('/notifications')) return 'alerts';
+    if (location.pathname.startsWith('/chats')) return 'chats';
+    if (location.pathname.startsWith('/profile')) return 'profile';
+    return 'feed';
+  }, [location]);
+
+  // Notifications / Alerts State
+  const [alerts, setAlerts] = useState<CampusAlertItem[]>([]);
+
+  const [alertFilter, setAlertFilter] = useState<'all' | 'likes' | 'comments' | 'followers' | 'dms' | 'announcements'>('all');
+
+  const unreadAlertsCount = useMemo(() => alerts.filter((a) => a.isUnread).length, [alerts]);
+
+  const handleMarkAllAlertsRead = () => {
+    setAlerts((prev) => prev.map((a) => ({ ...a, isUnread: false })));
+  };
+
+  const filteredNotifications = useMemo(() => {
+    if (alertFilter === 'all') return alerts;
+    if (alertFilter === 'likes') return alerts.filter((a) => a.type === 'like');
+    if (alertFilter === 'comments') return alerts.filter((a) => a.type === 'comment');
+    if (alertFilter === 'followers') return alerts.filter((a) => a.type === 'follow');
+    if (alertFilter === 'dms') return alerts.filter((a) => a.type === 'dm');
+    if (alertFilter === 'announcements') return alerts.filter((a) => a.type === 'announcement' || a.type === 'verification');
+    return alerts;
+  }, [alerts, alertFilter]);
+
+  const handleNotificationClick = (item: CampusAlertItem) => {
+    setAlerts((prev) => prev.map((a) => (a.id === item.id ? { ...a, isUnread: false } : a)));
+
+    if (item.type === 'dm') {
+      navigateToTab('chats');
+    } else if (item.type === 'announcement') {
+      navigateToTab('campus');
+    } else if (item.type === 'follow') {
+      navigateToTab('profile');
+    } else {
+      navigateToTab('feed');
+    }
+  };
+
+  const [viewingProfileUser, setViewingProfileUser] = useState<AppUser | null>(null);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [activeCampusSubHub, setActiveCampusSubHub] = useState<CampusSubHub | null>(null);
+
+  const activeProfileUser = targetProfileUser || viewingProfileUser || currentUser;
+
+  const navigateToTab = (tab: MobileTab) => {
+    navigate('/' + tab);
+  };
+
+  // Open the viewed user's profile route only when the viewed user changes
+  // (not every time the router's navigate function changes identity).
+  useEffect(() => {
+    if (targetProfileUser) {
+      navigate('/profile/' + targetProfileUser.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetProfileUser?.id]);
+
+  // Leaving that profile (any bottom tab, back button) clears the viewed user,
+  // so the tab bar works and "Profile" shows your own profile again.
+  useEffect(() => {
+    if (targetProfileUser && !location.pathname.startsWith('/profile/' + targetProfileUser.id)) {
+      onClearTargetUser?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
+  // Listen for /profile/:id route changes
+  useEffect(() => {
+    const path = location.pathname;
+    const match = path.match(/^\/profile\/([^/]+)/);
+    if (match) {
+      const userId = match[1];
+      console.log('Navigated to:', path);
+      if (currentUser && currentUser.id === userId) {
+        setViewingProfileUser(currentUser);
+        setProfileError(null);
+      } else {
+        setIsProfileLoading(true);
+        setProfileError(null);
+        fetchUserProfileByIdFromSupabase(userId)
+          .then((profile) => {
+            if (profile) {
+              setViewingProfileUser(profile);
+            } else {
+              setProfileError("Couldn't load student profile. Tap to retry.");
+            }
+          })
+          .catch(() => {
+            setProfileError("Couldn't load student profile. Tap to retry.");
+          })
+          .finally(() => {
+            setIsProfileLoading(false);
+          });
+      }
+    } else {
+      setViewingProfileUser(null);
+      setProfileError(null);
+    }
+  }, [location.pathname, currentUser]);
+
+
+  // Quick Action Sheet state (center '+' FAB)
+  const [isActionSheetOpen, setIsActionSheetOpen] = useState(false);
+
+  // My Store modal state
+  const [selectedMyStore, setSelectedMyStore] = useState<StudentBusiness | null>(null);
+
+  // Search & Filters in Marketplace
+  const [marketSearch, setMarketSearch] = useState('');
+  const [marketCategory, setMarketCategory] = useState<string>('All');
+  const [marketCampus, setMarketCampus] = useState<string>('All');
+  const [isZoneFilterSheetOpen, setIsZoneFilterSheetOpen] = useState(false);
+
+  // Global Search & People Discovery modals
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
+  const [initialSearchTab, setInitialSearchTab] = useState<'people' | 'groups' | 'pages' | 'products' | 'posts'>('posts');
+  const [isPeopleDiscoveryOpen, setIsPeopleDiscoveryOpen] = useState(false);
+
+  // Feed Category Filter
+  const [feedCategory, setFeedCategory] = useState<string>('All Buzz');
+
+  // Active Story Viewer State (WhatsApp/IG format)
+  const [activeStoryData, setActiveStoryData] = useState<{
+    author: {
+      userId: string;
+      username: string;
+      fullName?: string;
+      avatarUrl: string;
+      department?: string;
+    };
+    stories: MobileStoryItem[];
+  } | null>(null);
+
+  // Active Real-Time Chat Screen state
+  const [activeChatTarget, setActiveChatTarget] = useState<{
+    chatType: 'direct' | 'group' | 'channel';
+    recipient: {
+      id: string;
+      name: string;
+      handle: string;
+      avatarUrl: string;
+      isVerifiedStudent?: boolean;
+      department?: string;
+      online?: boolean;
+      isAcceptedContact?: boolean;
+    };
+  } | null>(null);
+
+  // Chat Filter (Primary Messages vs Instagram-style Message Requests)
+  const [chatFilter, setChatFilter] = useState<'all' | 'requests'>('all');
+
+  // Biometrics toggle state
+  const [isBiometricsActive, setIsBiometricsActive] = useState(() => BiometricsService.isBiometricsEnabled());
+
+  const handleToggleBiometrics = () => {
+    const nextState = !isBiometricsActive;
+    BiometricsService.setBiometricsEnabled(nextState, currentUser?.email);
+    setIsBiometricsActive(nextState);
+    showToast(
+      nextState
+        ? '✓ Native Biometrics (Face ID / Fingerprint) enabled on this device.'
+        : 'Biometrics disabled.'
+    );
+  };
+  // Avatar Action Sheet state
+  const [isAvatarSheetOpen, setIsAvatarSheetOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const myActiveSnaps = useMemo(() => {
+    if (!currentUser) return [];
+    return snaps.filter(s => s.authorId === currentUser.id);
+  }, [snaps, currentUser]);
+
+  const handleAvatarClick = () => {
+    setIsAvatarSheetOpen(true);
+  };
+
+  const handlePlusBadgeClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentUser) return;
+
+    try {
+      showToast('Uploading new profile photo...');
+      const url = await uploadMedia('avatars', `${currentUser.id}/avatar_${Date.now()}.jpg`, file);
+      await updateUser({ avatarUrl: url });
+      showToast('Profile photo updated!', 'success');
+    } catch (err) {
+      console.error('Avatar upload failed:', err);
+      showToast('Failed to update photo. Try again.', 'error');
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    if (!currentUser) return;
+    try {
+      await updateUser({ avatarUrl: '' });
+      showToast('Profile photo removed.');
+    } catch (err) {
+      showToast('Failed to remove photo.', 'error');
+    }
+  };
+
+  const handleViewOwnSnap = () => {
+    if (myActiveSnaps.length > 0) {
+      onSelectSnap(myActiveSnaps[0]);
+    }
+  };
+  // Filtered Marketplace businesses
+  const filteredBusinesses = useMemo(() => {
+    return businesses.filter((biz) => {
+      if (marketCategory !== 'All' && biz.category !== marketCategory) return false;
+      if (marketCampus !== 'All' && biz.campus !== marketCampus && biz.hostelLocation !== marketCampus) return false;
+      if (marketSearch.trim()) {
+        const query = marketSearch.toLowerCase();
+        const matchesName = biz.name.toLowerCase().includes(query);
+        const matchesDesc = biz.description.toLowerCase().includes(query);
+        const matchesLocation = biz.hostelLocation?.toLowerCase().includes(query);
+        if (!matchesName && !matchesDesc && !matchesLocation) return false;
+      }
+      return true;
+    });
+  }, [businesses, marketCategory, marketCampus, marketSearch]);
+
+  // Filtered Campus Posts
+  const filteredPosts = useMemo(() => {
+    return posts.filter((post) => {
+      if (selectedLevel !== 'All' && post.authorLevel && post.authorLevel !== selectedLevel && post.authorLevel !== 'Postgraduate' && post.authorLevel !== 'Postgrad') {
+        return false;
+      }
+      if (feedCategory === 'Academics & GNS' && post.category !== 'Academics & GNS') return false;
+      if (feedCategory === 'Student Hustle & Trades' && post.category !== 'Student Hustle & Trades') return false;
+      if (feedCategory === 'SUG & Elections' && post.category !== 'SUG & Elections') return false;
+      if (feedCategory === 'Events & Sports' && post.category !== 'Events & Sports') return false;
+      if (feedCategory === 'Campus Life' && post.category !== 'Campus Life & Hostels') return false;
+      return true;
+    });
+  }, [posts, selectedLevel, feedCategory]);
+
+  // User owned businesses for founder dashboard
+  const userOwnedBusinesses = useMemo(() => {
+    if (!currentUser) return [];
+    return businesses.filter(
+      (b) => b.ownerId === currentUser.id || (b.ownerEmail && currentUser.email && b.ownerEmail.toLowerCase() === currentUser.email.toLowerCase())
+    );
+  }, [businesses, currentUser]);
+
+  // Categories list
+  const MARKET_CATEGORIES = ['All', 'Food & Snacks', 'Tech & Gadgets', 'Fashion', 'Academics', 'Services', 'Grooming'];
+  const CAMPUS_ZONES = ['All', 'Permanent Site (PS)', 'Sanrab', 'Tanke', 'Chapels/Mosque', 'Jalala', 'Mini Campus'];
+  const FEED_CATEGORIES = ['All Buzz', 'Academics & GNS', 'Student Hustle & Trades', 'SUG & Elections', 'Events & Sports', 'Campus Life'];
+
+  return (
+    <div className="w-full min-h-screen h-[100dvh] bg-neutral-950 text-white flex flex-col select-none relative overflow-hidden">
+      {/* Top App Header */}
+      <header className="w-full bg-neutral-950/95 backdrop-blur-md border-b border-neutral-800/80 z-20 shrink-0">
+        <div className="max-w-4xl mx-auto px-4 py-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 text-neutral-950 font-black flex items-center justify-center text-sm shadow-md shadow-amber-500/20">
+              CF
+            </div>
+            <div>
+              <h1 className="text-sm font-extrabold text-white tracking-tight">CampusFoundry</h1>
+              {currentUser?.university ? (
+                <p className="text-[10px] text-neutral-400 font-medium truncate max-w-[160px]">
+                  {currentUser.university}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {onSwitchToWeb && (
+              <button
+                type="button"
+                onClick={onSwitchToWeb}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 text-xs font-semibold transition-colors"
+                title="Switch to Web Dashboard"
+              >
+                <Laptop className="w-3.5 h-3.5 text-neutral-400" />
+                <span>Web Dashboard</span>
+              </button>
+            )}
+            {/* Cart Drawer Trigger with Badge */}
+            <button
+              type="button"
+              onClick={() => setIsCartOpen(true)}
+              className="relative p-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition-colors"
+              title="Open Campus Cart"
+            >
+              <ShoppingBag className="w-4 h-4 text-amber-400" />
+              {totalItemCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-neutral-950 text-[10px] font-black flex items-center justify-center shadow-md animate-bounce">
+                  {totalItemCount}
+                </span>
+              )}
+            </button>
+
+            {/* Global Search Trigger */}
+            <button
+              type="button"
+              onClick={() => {
+                const defaultTab = activeTab === 'market' ? 'products' : activeTab === 'campus' ? 'groups' : 'posts';
+                setInitialSearchTab(defaultTab);
+                setIsGlobalSearchOpen(true);
+              }}
+              className="relative p-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition-colors"
+              title="Global Search"
+            >
+              <Search className="w-4 h-4 text-amber-400" />
+            </button>
+
+            {/* In-App Direct Messages Trigger */}
+            <button
+              type="button"
+              onClick={() => navigateToTab('chats')}
+              className="relative p-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition-colors"
+              title="Open Messages"
+            >
+              <MessageSquare className="w-4 h-4 text-sky-400" />
+              {unreadTotalCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-sky-500 text-neutral-950 text-[10px] font-black flex items-center justify-center shadow-md">
+                  {unreadTotalCount}
+                </span>
+              )}
+            </button>
+
+            {/* Admin Pages Control (Mobile Header Trigger) */}
+            {(currentUser?.isAdmin || currentUser?.staffRole === 'page_moderator' || currentUser?.staffRole === 'super_admin') && onOpenAdminPages && (
+              <button
+                type="button"
+                onClick={onOpenAdminPages}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 transition-colors shadow-sm active:scale-95"
+                title="Admin Pages Control"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span className="text-[11px] font-bold hidden xs:inline">Admin Pages</span>
+              </button>
+            )}
+
+            {/* Profile Avatar / Sign In */}
+            {currentUser ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={handleAvatarClick}
+                  className="w-9 h-9 rounded-full border-2 border-amber-500 overflow-hidden shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
+                  title="Open Photo Options"
+                >
+                  <img 
+                    src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'} 
+                    alt={currentUser.fullName || 'User'} 
+                    className="w-full h-full object-cover" 
+                  />
+                </button>
+                {/* "+" Badge on Header Avatar */}
+                <button
+                  onClick={handlePlusBadgeClick}
+                  className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-emerald-500 text-neutral-950 rounded-full flex items-center justify-center text-[10px] font-black border border-neutral-950 shadow-sm active:scale-110 transition-transform"
+                >
+                  +
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onOpenAuth('signin')}
+                className="text-xs px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold rounded-xl shadow-md transition-all active:scale-95"
+              >
+                Sign In
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Stories / Status Bar (Shown on Feed Tab) */}
+      {activeTab === 'feed' && (
+        <div className="w-full bg-neutral-900/40 border-b border-neutral-800/80 shrink-0">
+          <div className="max-w-4xl mx-auto py-2 px-4 overflow-x-auto no-scrollbar flex items-center gap-3">
+            {/* Add 24h Snap Button */}
+            <div
+              className="flex flex-col items-center gap-1 cursor-pointer min-w-[62px]"
+              onClick={onOpenCreateSnap}
+            >
+              <div className="relative w-14 h-14 rounded-full p-0.5 bg-neutral-800 border-2 border-dashed border-amber-500/70 flex items-center justify-center hover:scale-105 transition-transform">
+                <img
+                  src={currentUser?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
+                  alt="My Status"
+                  className="w-full h-full rounded-full object-cover opacity-80"
+                />
+                <span className="absolute bottom-0 right-0 w-4 h-4 bg-amber-500 text-neutral-950 rounded-full flex items-center justify-center text-xs font-black shadow-md">
+                  +
+                </span>
+              </div>
+              <span className="text-[10px] text-neutral-300 font-medium truncate max-w-[60px]">Add Snap</span>
+            </div>
+
+            {/* Active Campus Snaps list */}
+            {isLoadingSnaps && snaps.length === 0 ? (
+              /* Loading Skeletons */
+              [1, 2, 3].map((i) => (
+                <div key={i} className="flex flex-col items-center gap-1 min-w-[62px] animate-pulse">
+                  <div className="w-14 h-14 rounded-full bg-neutral-800" />
+                  <div className="h-2 w-8 rounded bg-neutral-800 mt-1" />
+                </div>
+              ))
+            ) : snapsError && snaps.length === 0 ? (
+              <button
+                onClick={onRetrySnaps}
+                className="flex items-center text-[10px] text-rose-400 font-bold px-3 py-1 bg-rose-500/10 rounded-lg border border-rose-500/20"
+              >
+                Retry Snaps
+              </button>
+            ) : snaps.length === 0 ? (
+              <div className="flex items-center text-[11px] text-neutral-500 italic px-2">
+                Nothing here yet
+              </div>
+            ) : (
+              snaps.map((snap) => (
+                <div
+                  key={snap.id}
+                  className="flex flex-col items-center gap-1 cursor-pointer min-w-[62px] active:scale-95 transition-transform"
+                  onClick={() => onSelectSnap(snap)}
+                >
+                  <div className={`w-14 h-14 rounded-full p-0.5 shadow-sm ${
+                    snap.hasSeen 
+                      ? 'bg-neutral-800' 
+                      : 'bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-500'
+                  }`}>
+                    <img
+                      src={snap.authorAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
+                      alt={snap.authorName}
+                      className="w-full h-full rounded-full object-cover border-2 border-neutral-950"
+                    />
+                  </div>
+                  <span className="text-[10px] text-neutral-300 truncate max-w-[60px]">
+                    {snap.authorUsername?.replace('@', '') || snap.authorName}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MAIN SCREEN BODY */}
+      <div className="flex-1 overflow-y-auto overscroll-y-contain bg-neutral-950 pb-16 w-full">
+        <div className="max-w-4xl mx-auto p-4 flex flex-col gap-3">
+          
+          {/* ========================================================== */}
+          {/* TAB 1: 📰 CAMPUS FEED                                      */}
+          {/* ========================================================== */}
+          {activeTab === 'feed' && (
+            <div className="flex flex-col gap-3 animate-in fade-in duration-200">
+              
+              {/* Single Row of Feed Category Filters */}
+              <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1">
+                {FEED_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setFeedCategory(cat)}
+                    className={`min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border shrink-0 ${
+                      feedCategory === cat
+                        ? 'bg-neutral-800 text-orange-400 border-orange-500/40 font-bold'
+                        : 'bg-neutral-900/80 text-neutral-300 border-neutral-800 hover:text-white'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Quick Post Prompt Card */}
+              <div 
+                onClick={onOpenCreatePost}
+                className="p-3 bg-neutral-900/90 border border-neutral-800 rounded-2xl flex items-center justify-between cursor-pointer hover:border-amber-500/40 transition-colors shadow-sm"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-neutral-800 border border-neutral-700 flex items-center justify-center text-neutral-400">
+                    <Camera className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <span className="text-xs text-neutral-400">Share campus updates, announcements or trade listing...</span>
+                </div>
+                <span className="text-xs font-bold text-amber-400 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  Post
+                </span>
+              </div>
+
+              {/* Posts Stream */}
+              {isLoadingPosts && posts.length === 0 ? (
+                /* Loading Skeletons */
+                [1, 2, 3].map((i) => (
+                  <div key={i} className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3 animate-pulse">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-neutral-800" />
+                      <div className="space-y-1.5 flex-1">
+                        <div className="h-3 w-24 rounded bg-neutral-800" />
+                        <div className="h-2 w-16 rounded bg-neutral-800" />
+                      </div>
+                    </div>
+                    <div className="h-20 w-full rounded-xl bg-neutral-800" />
+                  </div>
+                ))
+              ) : postsError && posts.length === 0 ? (
+                /* Error State */
+                <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-10 text-center space-y-4">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-500/10 text-rose-400 border border-rose-500/20 mb-1">
+                    <PlusCircle className="w-6 h-6 rotate-45" />
+                  </div>
+                  <h3 className="text-sm font-bold text-white">Unable to load feed</h3>
+                  <p className="text-xs text-neutral-400 max-w-xs mx-auto">
+                    {postsError || 'Check your connection or student portal session and try again.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onRetryPosts}
+                    className="min-h-[44px] px-6 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-xl text-xs border border-neutral-700 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span>Tap to Retry</span>
+                  </button>
+                </div>
+              ) : filteredPosts.length === 0 ? (
+                <div className="text-center py-12 px-4 bg-neutral-900/50 rounded-2xl border border-neutral-800">
+                  <Sparkles className="w-8 h-8 text-amber-400 mx-auto mb-2" />
+                  <h4 className="text-sm font-bold text-white">Nothing here yet</h4>
+                  <p className="text-xs text-neutral-400 mt-1 mb-4">Be the first student to drop an update or course gist!</p>
+                  <button
+                    type="button"
+                    onClick={onOpenCreatePost}
+                    className="px-4 py-2 bg-amber-500 text-neutral-950 font-bold rounded-xl text-xs"
+                  >
+                    + Create First Post
+                  </button>
+                </div>
+              ) : (
+                filteredPosts.map((post) => (
+                  <PostCard
+                    key={post.id}
+                    post={post}
+                    onLikeToggle={onLikeToggle}
+                    onAddComment={onAddComment}
+                    onSelectBusiness={onSelectBusiness}
+                    onDeletePost={onDeletePost}
+                    allBusinesses={businesses}
+                    onOpenAuthorProfile={onViewUserProfile}
+                    onRequireAuth={(action) => onOpenAuth('signin')}
+                    activeSnap={snaps.find(s => s.authorId === post.authorId)}
+                    onSelectSnap={onSelectSnap}
+                  />
+                ))
+              )}
+            </div>
+          )}
+
+          {/* ========================================================== */}
+          {/* TAB 2: 🛍️ MARKETPLACE & VENTURES                           */}
+          {/* ========================================================== */}
+          {activeTab === 'market' && (
+            <div className="space-y-3 animate-in fade-in duration-200">
+              
+              {/* Marketplace Header Banner */}
+              <div className="p-3.5 bg-gradient-to-r from-amber-500/20 via-orange-500/10 to-neutral-900 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-xs font-extrabold text-amber-300 truncate">
+                    {currentUser?.university ? `${currentUser.university} Marketplace` : 'Campus Marketplace'}
+                  </h3>
+                  <p className="text-[10px] text-neutral-300 mt-0.5 line-clamp-1">
+                    Order directly from verified student traders across Sanrab, Tanke & PS.
+                  </p>
+                </div>
+                {userOwnedBusinesses.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMyStore(userOwnedBusinesses[0])}
+                    className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-xl text-[10px] shadow-sm whitespace-nowrap flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    <Store className="w-3.5 h-3.5" />
+                    <span>My Store</span>
+                  </button>
+                ) : onOpenBecomeTrader ? (
+                  <button
+                    type="button"
+                    onClick={onOpenBecomeTrader}
+                    className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold rounded-xl text-[10px] shadow-sm whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    Become Trader
+                  </button>
+                ) : null}
+              </div>
+
+              {/* My Store Quick Actions Banner (if owner) */}
+              {userOwnedBusinesses.length > 0 && (
+                <div className="p-3 bg-gradient-to-r from-emerald-950/40 via-neutral-900 to-neutral-900 border border-emerald-500/30 rounded-2xl flex items-center justify-between gap-3 shadow-md">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0">
+                      <Store className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Your Venture</span>
+                        <span className="text-[9px] bg-emerald-500/10 text-emerald-300 px-1.5 py-0.2 rounded border border-emerald-500/30 font-medium">Owner</span>
+                      </div>
+                      <h4 className="text-xs font-bold text-white truncate">{userOwnedBusinesses[0].name}</h4>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMyStore(userOwnedBusinesses[0])}
+                    className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-xl text-[11px] shrink-0 flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Manage Products</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Search Bar */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={marketSearch}
+                  onChange={(e) => setMarketSearch(e.target.value)}
+                  placeholder="Search food, gadgets, printouts, fashion..."
+                  className="w-full bg-neutral-900 border border-neutral-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-500/60"
+                />
+                {marketSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setMarketSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Merged Single Filter Row: Zone Filters Button + Category Chips */}
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+                {/* Filters Button for Campus Zone Bottom Sheet */}
+                <button
+                  type="button"
+                  onClick={() => setIsZoneFilterSheetOpen(true)}
+                  className={`min-h-[44px] flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all shrink-0 cursor-pointer ${
+                    marketCampus !== 'All'
+                      ? 'border-orange-500/50 bg-orange-500/10 text-orange-400'
+                      : 'border-neutral-800 bg-neutral-900 text-neutral-300 hover:text-white'
+                  }`}
+                  title="Filter by Campus Zone"
+                >
+                  <Filter className="h-4 w-4 text-orange-400" />
+                  <span>{marketCampus !== 'All' ? marketCampus.split(' ')[0] : 'Filters'}</span>
+                </button>
+
+                {/* Category Chips */}
+                {MARKET_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setMarketCategory(cat)}
+                    className={`min-h-[44px] px-3.5 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border shrink-0 ${
+                      marketCategory === cat
+                        ? 'bg-neutral-800 text-orange-400 border-orange-500/40 font-bold'
+                        : 'bg-neutral-900/80 text-neutral-300 border-neutral-800 hover:text-white'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Business Cards 2-Column Grid / States */}
+              {isLoadingBusinesses && businesses.length === 0 ? (
+                /* Loading Skeletons in 2-Column Grid */
+                <div className="grid grid-cols-2 gap-3">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-3 space-y-2.5 animate-pulse"
+                    >
+                      <div className="w-full aspect-square rounded-xl bg-neutral-800" />
+                      <div className="h-3.5 w-3/4 rounded-md bg-neutral-800" />
+                      <div className="h-4 w-1/2 rounded-md bg-neutral-800" />
+                      <div className="pt-2 border-t border-neutral-800/80 flex items-center justify-between">
+                        <div className="h-3 w-1/3 rounded bg-neutral-800" />
+                        <div className="h-3 w-8 rounded bg-neutral-800" />
+                      </div>
+                      <div className="h-11 w-full rounded-xl bg-neutral-800" />
+                    </div>
+                  ))}
+                </div>
+              ) : businessesError && businesses.length === 0 ? (
+                /* Error State with Retry Button */
+                <div className="text-center py-12 px-4 bg-neutral-900/50 rounded-2xl border border-neutral-800">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-500/10 text-rose-400 border border-rose-500/20 mb-3">
+                    <AlertCircle className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-white">Unable to load campus traders</h4>
+                  <p className="text-xs text-neutral-400 mt-1 mb-4">{businessesError || 'Please check your connection and try again.'}</p>
+                  <button
+                    type="button"
+                    onClick={onRetryBusinesses}
+                    className="min-h-[44px] px-5 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-xl text-xs cursor-pointer border border-neutral-700 transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Retry</span>
+                  </button>
+                </div>
+              ) : businesses.length === 0 ? (
+                /* Empty State: No traders yet. Be the first to open a store */
+                <div className="text-center py-12 px-4 bg-neutral-900/50 rounded-2xl border border-neutral-800">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500/10 text-orange-400 border border-orange-500/20 mb-3">
+                    <Store className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-white">No traders yet. Be the first to open a store</h4>
+                  <p className="text-xs text-neutral-400 mt-1 mb-4">Register your hostel bakes, tech repair, dorm styling, or campus brand today.</p>
+                  <button
+                    type="button"
+                    onClick={onOpenBecomeTrader || onOpenCreateBusiness}
+                    className="min-h-[44px] px-5 py-2.5 bg-orange-500 hover:bg-orange-400 text-neutral-950 font-bold rounded-xl text-xs cursor-pointer transition-colors shadow-md"
+                  >
+                    Become a Trader
+                  </button>
+                </div>
+              ) : filteredBusinesses.length === 0 ? (
+                /* Filtered Search Empty State */
+                <div className="text-center py-12 px-4 bg-neutral-900/50 rounded-2xl border border-neutral-800">
+                  <Store className="w-8 h-8 text-neutral-500 mx-auto mb-2" />
+                  <h4 className="text-sm font-bold text-white">No trades found</h4>
+                  <p className="text-xs text-neutral-400 mt-1 mb-4">Try clearing filters or search query.</p>
+                  <button
+                    type="button"
+                    onClick={() => { setMarketCategory('All'); setMarketCampus('All'); setMarketSearch(''); }}
+                    className="min-h-[44px] px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-xl text-xs cursor-pointer transition-colors"
+                  >
+                    Clear Filters
+                  </button>
+                </div>
+              ) : (
+                /* 2-Column Grid */
+                <div className="grid grid-cols-2 gap-3">
+                  {filteredBusinesses.map((biz) => (
+                    <BusinessCard
+                      key={biz.id}
+                      business={biz}
+                      onSelect={onSelectBusiness}
+                      onOpenTraderProfile={onOpenTraderProfile}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ========================================================== */}
+          {/* TAB 3: 🏛️ CAMPUS LIFE HUB                                 */}
+          {/* ========================================================== */}
+          {activeTab === 'campus' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              
+              {activeCampusSubHub === null ? (
+                /* Hubs Landing Screen - 2x3 Grid */
+                <div className="space-y-4">
+                  <div className="p-4 bg-gradient-to-r from-neutral-900 via-neutral-900 to-orange-950/40 border border-neutral-800 rounded-3xl">
+                    <h2 className="text-base font-extrabold text-white">Campus Life Hubs</h2>
+                    <p className="text-xs text-neutral-300 mt-1">
+                      Student politics, academic resources, clubs, news bulletins & interactive map.
+                    </p>
+                  </div>
+
+                  {/* 2x3 Grid of Icon Tiles */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
+                    {[
+                      {
+                        id: 'politics' as CampusSubHub,
+                        icon: Vote,
+                        label: 'SUG Politics & Votes',
+                        subtitle: 'Campaign manifestos & live voting',
+                        color: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+                      },
+                      {
+                        id: 'academics' as CampusSubHub,
+                        icon: BookOpen,
+                        label: 'Academic Hub',
+                        subtitle: 'Faculties, past Qs & course outlines',
+                        color: 'text-sky-400 bg-sky-500/10 border-sky-500/20',
+                      },
+                      {
+                        id: 'clubs' as CampusSubHub,
+                        icon: Users,
+                        label: 'Clubs & Tech Hubs',
+                        subtitle: 'Tech, sports & student societies',
+                        color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+                      },
+                      {
+                        id: 'news' as CampusSubHub,
+                        icon: Newspaper,
+                        label: 'Campus News',
+                        subtitle: 'Official campus memos & press',
+                        color: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+                      },
+                      {
+                        id: 'map' as CampusSubHub,
+                        icon: Compass,
+                        label: 'Landmarks & Transit',
+                        subtitle: 'Places, shuttle routes and fares',
+                        color: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+                      },
+                      {
+                        id: 'idcard' as CampusSubHub,
+                        icon: ShieldCheck,
+                        label: 'Digital ID Pass',
+                        subtitle: 'Verified student badge',
+                        color: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+                      },
+                    ].map((tile) => {
+                      const IconComponent = tile.icon;
+                      return (
+                        <button
+                          key={tile.id}
+                          type="button"
+                          onClick={() => {
+                            if (tile.id === 'idcard') {
+                              navigate('/profile');
+                            } else {
+                              setActiveCampusSubHub(tile.id);
+                            }
+                          }}
+                          className="group relative min-h-[110px] p-4 rounded-2xl border border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 hover:border-orange-500/50 transition-all flex flex-col justify-between cursor-pointer shadow-lg text-left active:scale-95"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className={`flex h-10 w-10 items-center justify-center rounded-xl border ${tile.color}`}>
+                              <IconComponent className="h-5 w-5" />
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-neutral-500 group-hover:text-orange-400 transition-colors" />
+                          </div>
+
+                          <div className="mt-3">
+                            <h3 className="text-xs sm:text-sm font-bold text-white group-hover:text-orange-400 transition-colors line-clamp-1">
+                              {tile.label}
+                            </h3>
+                            <p className="text-[11px] text-neutral-300 line-clamp-1 mt-0.5">
+                              {tile.subtitle}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                /* Sub-Section View with Back Arrow in Header */
+                <div className="space-y-4">
+                  {/* Header with Back Arrow */}
+                  <div className="flex items-center justify-between pb-2 border-b border-neutral-800">
+                    <button
+                      type="button"
+                      onClick={() => setActiveCampusSubHub(null)}
+                      className="min-h-[44px] min-w-[44px] flex items-center gap-2 px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-200 hover:text-white hover:bg-neutral-800 font-bold text-xs cursor-pointer transition-all"
+                    >
+                      <ArrowLeft className="h-4 w-4 text-orange-400" />
+                      <span>Back to Hubs</span>
+                    </button>
+
+                    <span className="text-xs font-bold text-neutral-300 uppercase tracking-wider font-mono">
+                      {activeCampusSubHub === 'politics' && 'SUG Politics'}
+                      {activeCampusSubHub === 'academics' && 'Academics'}
+                      {activeCampusSubHub === 'clubs' && 'Clubs & Societies'}
+                      {activeCampusSubHub === 'news' && 'Campus Memos'}
+                      {activeCampusSubHub === 'map' && 'Landmarks & Transit'}
+                    </span>
+                  </div>
+
+                  {/* Active Section Content */}
+                  {activeCampusSubHub === 'politics' && (
+                    <PoliticsCampaignView
+                      onRequireAuth={() => onOpenAuth('signin')}
+                      onShowToast={showToast}
+                    />
+                  )}
+
+                  {activeCampusSubHub === 'academics' && (
+                    <FacultiesDeptsView
+                      selectedLevel={selectedLevel}
+                      onSelectLevel={onSelectLevel}
+                      onShowToast={showToast}
+                    />
+                  )}
+
+                  {activeCampusSubHub === 'clubs' && (
+                    <ClubsDirectoryView
+                      onRequireAuth={() => onOpenAuth('signin')}
+                      onShowToast={showToast}
+                    />
+                  )}
+
+                  {activeCampusSubHub === 'news' && (
+                    <CampusNewsView onShowToast={showToast} />
+                  )}
+
+                  {activeCampusSubHub === 'map' && (
+                    <CampusMapView />
+                  )}
+                </div>
+              )}
+
+            </div>
+          )}
+
+          {/* ========================================================== */}
+          {/* TAB 4: 💬 CHATS & DIRECT MESSAGING                         */}
+          {/* ========================================================== */}
+          {activeTab === 'chats' && (
+            <div className="space-y-3 animate-in fade-in duration-200">
+              
+              {/* Chats Header with subtle lock indicator */}
+              <div className="flex items-center justify-between px-1 py-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-white">Direct Messages</h3>
+                  <span title="End-to-End Encrypted" className="text-emerald-400 flex items-center">
+                    <Lock className="w-3.5 h-3.5" />
+                  </span>
+                </div>
+                <span className="flex items-center gap-1.5 text-[10px] text-neutral-400 font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  Online
+                </span>
+              </div>
+
+              {/* Filter Tabs: Direct Messages vs Message Requests */}
+              <div className="flex bg-neutral-900 p-1 rounded-xl border border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => setChatFilter('all')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    chatFilter === 'all' ? 'bg-amber-500 text-neutral-950' : 'text-neutral-400'
+                  }`}
+                >
+                  Direct Chats ({conversations.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatFilter('requests')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
+                    chatFilter === 'requests' ? 'bg-amber-500 text-neutral-950' : 'text-neutral-400'
+                  }`}
+                >
+                  <span>Requests</span>
+                  {pendingRequestsCount > 0 && (
+                    <span className="w-4 h-4 rounded-full bg-amber-400 text-neutral-950 text-[10px] flex items-center justify-center font-bold">
+                      {pendingRequestsCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* 1. Marketplace In-App Order Conversations */}
+              {marketplaceConversations.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  <div className="text-[11px] font-bold text-neutral-400 px-1 uppercase tracking-wider flex items-center gap-1.5">
+                    <Store className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Marketplace Trades & Orders</span>
+                  </div>
+                  {marketplaceConversations
+                    .filter((m) => m.buyerId !== m.traderId && !(currentUser && m.buyerId === currentUser.id && m.traderId === currentUser.id))
+                    .map((mConv) => {
+                    const isBuyer = mConv.buyerId === currentUser?.id;
+                    const otherPartyName = isBuyer 
+                      ? (mConv.businessName || 'Campus Store')
+                      : (mConv.buyerName || 'Buyer');
+                    const unread = isBuyer ? mConv.buyerUnread : mConv.traderUnread;
+                    const isDeclinedOrBlocked = mConv.status === 'declined' || mConv.status === 'blocked';
+
+                    return (
+                      <div
+                        key={mConv.id}
+                        onClick={() => openMarketplaceChat(mConv.id)}
+                        className="p-3 bg-neutral-900 border border-neutral-800 rounded-2xl flex items-center justify-between cursor-pointer hover:border-neutral-700 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-10 h-10 rounded-2xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-amber-400 shrink-0 font-bold text-sm">
+                            {otherPartyName.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <h4 className="text-xs font-bold text-white truncate">{otherPartyName}</h4>
+                              <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono uppercase ${
+                                isDeclinedOrBlocked 
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' 
+                                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              }`}>
+                                {mConv.status}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-neutral-400 truncate max-w-[210px]">
+                              {mConv.lastMessage || 'Order conversation opened'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-[10px] text-neutral-500">
+                            {mConv.lastMessageAt 
+                              ? new Date(mConv.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                              : ''}
+                          </span>
+                          {unread > 0 && (
+                            <div className="w-4 h-4 bg-amber-500 text-neutral-950 font-bold rounded-full flex items-center justify-center text-[9px] ml-auto mt-1">
+                              {unread}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 2. Direct Conversations List */}
+              <div className="space-y-2 pt-1">
+                <div className="text-[11px] font-bold text-neutral-400 px-1 uppercase tracking-wider">
+                  💬 Direct Conversations
+                </div>
+                {conversations.filter((c) => (chatFilter === 'requests' ? c.isMessageRequest : !c.isMessageRequest)).length > 0 ? (
+                  conversations
+                    .filter((c) => (chatFilter === 'requests' ? c.isMessageRequest : !c.isMessageRequest))
+                    .map((chat) => (
+                      <div
+                        key={chat.id}
+                        onClick={() =>
+                          setActiveChatTarget({
+                            chatType: 'direct',
+                            recipient: {
+                              id: chat.id,
+                              name: chat.traderName || chat.businessName,
+                              handle: `@${(chat.businessName || 'chat').toLowerCase().replace(/\s+/g, '_')}`,
+                              avatarUrl: chat.businessImageUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100',
+                              isVerifiedStudent: true,
+                              online: chat.isOnline,
+                              isAcceptedContact: !chat.isMessageRequest,
+                            },
+                          })
+                        }
+                        className="p-3 bg-neutral-900 border border-neutral-800 rounded-2xl flex items-center justify-between cursor-pointer hover:border-neutral-700 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="relative shrink-0">
+                            <img 
+                              src={chat.businessImageUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'} 
+                              alt={chat.businessName} 
+                              className="w-10 h-10 rounded-full object-cover" 
+                            />
+                            {chat.isOnline && (
+                              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-neutral-900" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-xs font-bold text-white truncate">{chat.traderName || chat.businessName}</h4>
+                            <p className="text-[11px] text-neutral-400 truncate max-w-[210px]">{chat.lastMessage}</p>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-[10px] text-neutral-500 font-mono">
+                            {chat.lastMessageTimestamp
+                              ? new Date(chat.lastMessageTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                              : ''}
+                          </span>
+                          {chat.unreadCount > 0 && (
+                            <div className="w-4 h-4 bg-amber-500 text-neutral-950 font-bold rounded-full flex items-center justify-center text-[9px] ml-auto mt-1">
+                              {chat.unreadCount}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                ) : (
+                  marketplaceConversations.length === 0 && (
+                    <div className="text-center py-10 px-4 bg-neutral-900/40 rounded-2xl border border-neutral-800 space-y-2">
+                      <MessageSquare className="w-7 h-7 text-neutral-500 mx-auto" />
+                      <h4 className="text-sm font-bold text-white">Nothing here yet</h4>
+                      <p className="text-xs text-neutral-400 max-w-xs mx-auto">
+                        Your direct messages and trade enquiries will appear here once you message a trader or receive an inquiry.
+                      </p>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================== */}
+          {/* TAB: 🔔 ALERTS & NOTIFICATIONS                             */}
+          {/* ========================================================== */}
+          {activeTab === 'alerts' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between p-4 rounded-2xl bg-neutral-900 border border-neutral-800">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                    <Bell className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-extrabold text-white flex items-center gap-2">
+                      <span>Notifications & Alerts</span>
+                      {unreadAlertsCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500 text-neutral-950 text-[10px] font-black">
+                          {unreadAlertsCount} NEW
+                        </span>
+                      )}
+                    </h2>
+                    <p className="text-[11px] text-neutral-400">
+                      Likes, comments, followers, DMs, verification & hub announcements
+                    </p>
+                  </div>
+                </div>
+
+                {unreadAlertsCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleMarkAllAlertsRead}
+                    className="text-xs font-bold text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                  >
+                    Mark all read
+                  </button>
+                )}
+              </div>
+
+              {/* Filter Chips */}
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+                {(['all', 'likes', 'comments', 'followers', 'dms', 'announcements'] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    type="button"
+                    onClick={() => setAlertFilter(filter)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize whitespace-nowrap transition-all cursor-pointer ${
+                      alertFilter === filter
+                        ? 'bg-amber-500 text-neutral-950 shadow-md'
+                        : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
+                    }`}
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </div>
+
+              {/* Notification Items List */}
+              <div className="space-y-2.5">
+                {filteredNotifications.length === 0 ? (
+                  <div className="p-10 text-center bg-neutral-900/40 rounded-2xl border border-neutral-800 space-y-2">
+                    <Bell className="w-8 h-8 text-neutral-500 mx-auto" />
+                    <h4 className="text-sm font-bold text-white">No notifications in this filter</h4>
+                    <p className="text-xs text-neutral-400">You're all caught up with campus updates!</p>
+                  </div>
+                ) : (
+                  filteredNotifications.map((item) => (
+                    <div
+                      key={item.id}
+                      onClick={() => handleNotificationClick(item)}
+                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
+                        item.isUnread
+                          ? 'bg-neutral-900 border-amber-500/30 hover:border-amber-500/60'
+                          : 'bg-neutral-900/50 border-neutral-800/80 hover:bg-neutral-900'
+                      }`}
+                    >
+                      {/* Type Avatar/Icon */}
+                      <div className="relative shrink-0">
+                        <img
+                          src={item.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
+                          alt="Sender"
+                          className="w-10 h-10 rounded-full object-cover border border-neutral-800"
+                        />
+                        <div className="absolute -bottom-1 -right-1 p-1 rounded-full bg-neutral-950 border border-neutral-800">
+                          {item.type === 'like' && <Heart className="w-3 h-3 text-rose-500 fill-rose-500" />}
+                          {item.type === 'comment' && <MessageSquare className="w-3 h-3 text-sky-400" />}
+                          {item.type === 'follow' && <User className="w-3 h-3 text-indigo-400" />}
+                          {item.type === 'dm' && <MessageSquare className="w-3 h-3 text-emerald-400" />}
+                          {item.type === 'verification' && <ShieldCheck className="w-3 h-3 text-amber-400" />}
+                          {item.type === 'announcement' && <Sparkles className="w-3 h-3 text-amber-400" />}
+                        </div>
+                      </div>
+
+                      {/* Notification Text */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-0.5">
+                          <h4 className="text-xs font-bold text-white truncate">{item.title}</h4>
+                          <span className="text-[10px] text-neutral-500 font-mono shrink-0">{item.timestamp}</span>
+                        </div>
+                        <p className="text-xs text-neutral-300 leading-snug">{item.description}</p>
+                      </div>
+
+                      {item.isUnread && (
+                        <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 self-center" />
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================== */}
+          {/* TAB 5: 👤 STUDENT SOCIAL PROFILE                           */}
+          {/* ========================================================== */}
+          {activeTab === 'profile' && (
+            <div className="space-y-3">
+              {activeProfileUser && currentUser && activeProfileUser.id !== currentUser.id && (
+                <div className="px-1 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewingProfileUser(null);
+                      onClearTargetUser?.();
+                      navigate('/profile');
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white text-xs font-semibold cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Back to My Profile</span>
+                  </button>
+                </div>
+              )}
+
+              {isProfileLoading && !viewingProfileUser ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
+                  <p className="text-xs text-neutral-400 font-medium tracking-wide">Loading student profile...</p>
+                </div>
+              ) : profileError ? (
+                <div 
+                  className="mx-auto max-w-sm rounded-3xl border border-rose-500/20 bg-rose-500/5 p-8 text-center mt-10 cursor-pointer hover:bg-rose-500/10 transition-colors"
+                  onClick={() => {
+                    const match = location.pathname.match(/^\/profile\/([^/]+)/);
+                    if (match) {
+                      const userId = match[1];
+                      setIsProfileLoading(true);
+                      setProfileError(null);
+                      fetchUserProfileByIdFromSupabase(userId)
+                        .then(p => { if (p) setViewingProfileUser(p); else setProfileError("Couldn't load student profile. Tap to retry."); })
+                        .catch(() => setProfileError("Couldn't load student profile. Tap to retry."))
+                        .finally(() => setIsProfileLoading(false));
+                    }
+                  }}
+                >
+                  <AlertCircle className="w-10 h-10 text-rose-500 mx-auto mb-4" />
+                  <h3 className="text-sm font-bold text-white mb-1">Profile Unavailable</h3>
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    {profileError}
+                  </p>
+                </div>
+              ) : (
+                <UserProfileView
+                  user={activeProfileUser}
+                  userPosts={posts.filter((p) => p.authorId === activeProfileUser?.id || p.authorUsername === activeProfileUser?.username)}
+                  userSnaps={snaps.filter((s) => s.authorId === activeProfileUser?.id)}
+                  userBusinesses={activeProfileUser?.id === currentUser?.id ? userOwnedBusinesses : businesses.filter((b) => b.ownerId === activeProfileUser?.id)}
+                  onOpenCreatePost={onOpenCreatePost}
+                  onOpenCreateBusiness={onOpenCreateBusiness}
+                  onSelectBusiness={onSelectBusiness}
+                />
+              )}
+            </div>
+          )}
+
+        </div>
+      </div>
+
+      {/* BOTTOM TAB BAR NAVIGATION (SYMMETRICAL 7-COLUMN GRID) */}
+      <nav 
+        className="fixed bottom-0 left-0 right-0 h-16 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-800/80 z-30"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div 
+          className="max-w-4xl mx-auto h-full grid grid-cols-7 w-full"
+          style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}
+        >
+          {/* TAB 1: FEED */}
+          <button
+            type="button"
+            onClick={() => navigateToTab('feed')}
+            className="flex flex-col items-center justify-center h-full w-full col-span-1 transition-transform active:scale-95 cursor-pointer"
+          >
+            <Home className={`w-[22px] h-[22px] transition-colors ${activeTab === 'feed' ? 'text-amber-400' : 'text-neutral-400'}`} />
+            <span className={`text-[10px] font-bold mt-1 leading-none ${activeTab === 'feed' ? 'text-amber-400' : 'text-neutral-400'}`}>
+              Feed
+            </span>
+          </button>
+
+          {/* TAB 2: MARKET */}
+          <button
+            type="button"
+            onClick={() => navigateToTab('market')}
+            className="flex flex-col items-center justify-center h-full w-full col-span-1 transition-transform active:scale-95 cursor-pointer"
+          >
+            <ShoppingBag className={`w-[22px] h-[22px] transition-colors ${activeTab === 'market' ? 'text-amber-400' : 'text-neutral-400'}`} />
+            <span className={`text-[10px] font-bold mt-1 leading-none ${activeTab === 'market' ? 'text-amber-400' : 'text-neutral-400'}`}>
+              Market
+            </span>
+          </button>
+
+          {/* TAB 3: HUBS */}
+          <button
+            type="button"
+            onClick={() => navigateToTab('campus')}
+            className="flex flex-col items-center justify-center h-full w-full col-span-1 transition-transform active:scale-95 cursor-pointer"
+          >
+            <Building2 className={`w-[22px] h-[22px] transition-colors ${activeTab === 'campus' ? 'text-amber-400' : 'text-neutral-400'}`} />
+            <span className={`text-[10px] font-bold mt-1 leading-none ${activeTab === 'campus' ? 'text-amber-400' : 'text-neutral-400'}`}>
+              Hubs
+            </span>
+          </button>
+
+          {/* TAB 4: CENTER QUICK ACTION FAB (+) */}
+          <div className="flex flex-col items-center justify-center h-full w-full col-span-1 relative">
+            <button
+              type="button"
+              onClick={() => setIsActionSheetOpen(true)}
+              className="relative -top-3.5 w-[52px] h-[52px] min-w-[52px] min-h-[52px] rounded-full bg-gradient-to-tr from-amber-500 to-amber-400 text-neutral-950 flex items-center justify-center shadow-xl shadow-amber-500/30 transition-transform active:scale-95 border-2 border-neutral-950 cursor-pointer"
+              title="Campus Quick Action"
+            >
+              <Plus className="w-[26px] h-[26px] stroke-[2.5] block p-0 text-neutral-950" />
+            </button>
+          </div>
+
+          {/* TAB 5: ALERTS */}
+          <button
+            type="button"
+            onClick={() => navigateToTab('alerts')}
+            className="flex flex-col items-center justify-center h-full w-full col-span-1 transition-transform active:scale-95 cursor-pointer"
+          >
+            <div className="relative flex items-center justify-center">
+              <Bell className={`w-[22px] h-[22px] transition-colors ${activeTab === 'alerts' ? 'text-amber-400' : 'text-neutral-400'}`} />
+              {unreadAlertsCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-500 rounded-full border-2 border-neutral-950" />
+              )}
+            </div>
+            <span className={`text-[10px] font-bold mt-1 leading-none ${activeTab === 'alerts' ? 'text-amber-400' : 'text-neutral-400'}`}>
+              Alerts
+            </span>
+          </button>
+
+          {/* TAB 6: CHATS */}
+          <button
+            type="button"
+            onClick={() => navigateToTab('chats')}
+            className="flex flex-col items-center justify-center h-full w-full col-span-1 transition-transform active:scale-95 cursor-pointer"
+          >
+            <div className="relative flex items-center justify-center">
+              <MessageSquare className={`w-[22px] h-[22px] transition-colors ${activeTab === 'chats' ? 'text-amber-400' : 'text-neutral-400'}`} />
+              {unreadTotalCount > 0 && (
+                <span className="absolute -top-1.5 -right-2.5 min-w-[14px] h-[14px] px-0.5 bg-amber-500 text-neutral-950 text-[9px] font-black rounded-full flex items-center justify-center shadow-sm">
+                  {unreadTotalCount}
+                </span>
+              )}
+            </div>
+            <span className={`text-[10px] font-bold mt-1 leading-none ${activeTab === 'chats' ? 'text-amber-400' : 'text-neutral-400'}`}>
+              Chats
+            </span>
+          </button>
+
+          {/* TAB 7: PROFILE */}
+          <button
+            type="button"
+            onClick={() => navigateToTab('profile')}
+            className="flex flex-col items-center justify-center h-full w-full col-span-1 transition-transform active:scale-95 cursor-pointer"
+          >
+            <User className={`w-[22px] h-[22px] transition-colors ${activeTab === 'profile' ? 'text-amber-400' : 'text-neutral-400'}`} />
+            <span className={`text-[10px] font-bold mt-1 leading-none ${activeTab === 'profile' ? 'text-amber-400' : 'text-neutral-400'}`}>
+              Profile
+            </span>
+          </button>
+        </div>
+      </nav>
+
+        {/* MODAL: QUICK ACTION BOTTOM SHEET */}
+        {isActionSheetOpen && (
+          <div className="absolute inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col justify-end animate-in fade-in duration-200">
+            <div 
+              className="bg-neutral-900 border-t border-neutral-800 rounded-t-3xl p-4 space-y-3 pb-8 animate-in slide-in-from-bottom duration-250"
+            >
+              <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
+                <h3 className="text-xs font-extrabold text-white tracking-wide">CAMPUS QUICK ACTIONS</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsActionSheetOpen(false)}
+                  className="p-1 rounded-full text-neutral-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsActionSheetOpen(false);
+                    onOpenCreatePost();
+                  }}
+                  className="p-3 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 rounded-2xl flex flex-col items-center text-center gap-1.5 transition-colors"
+                >
+                  <span className="text-xl">📝</span>
+                  <span className="text-xs font-bold text-white">Create Post</span>
+                  <span className="text-[10px] text-neutral-400">Buzz, news or inquiry</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsActionSheetOpen(false);
+                    onOpenCreateSnap();
+                  }}
+                  className="p-3 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 rounded-2xl flex flex-col items-center text-center gap-1.5 transition-colors"
+                >
+                  <span className="text-xl">📸</span>
+                  <span className="text-xs font-bold text-white">24h Campus Snap</span>
+                  <span className="text-[10px] text-neutral-400">Camera / status photo</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsActionSheetOpen(false);
+                    onOpenCreateBusiness();
+                  }}
+                  className="p-3 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 rounded-2xl flex flex-col items-center text-center gap-1.5 transition-colors"
+                >
+                  <span className="text-xl">🏪</span>
+                  <span className="text-xs font-bold text-white">List New Trade</span>
+                  <span className="text-[10px] text-neutral-400">Launch a campus business</span>
+                </button>
+
+                {onOpenBecomeTrader && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsActionSheetOpen(false);
+                      onOpenBecomeTrader();
+                    }}
+                    className="p-3 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 rounded-2xl flex flex-col items-center text-center gap-1.5 transition-colors"
+                  >
+                    <span className="text-xl">🎓</span>
+                    <span className="text-xs font-bold text-amber-400">Become Trader</span>
+                    <span className="text-[10px] text-neutral-400">Matric verification badge</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: FULLSCREEN STORIES / STATUS VIEWER */}
+        {activeStoryData && (
+          <StoriesViewerScreen
+            author={activeStoryData.author}
+            stories={activeStoryData.stories}
+            onClose={() => setActiveStoryData(null)}
+            onOpenChatWithAuthor={(authorId, replyText) => {
+              setActiveStoryData(null);
+              setActiveChatTarget({
+                chatType: 'direct',
+                recipient: {
+                  id: authorId,
+                  name: activeStoryData.author.username,
+                  handle: `@${activeStoryData.author.username}`,
+                  avatarUrl: activeStoryData.author.avatarUrl,
+                  department: activeStoryData.author.department,
+                  online: true,
+                  isAcceptedContact: true,
+                },
+              });
+            }}
+          />
+        )}
+
+        {/* MODAL: FULLSCREEN REAL-TIME CHAT SCREEN */}
+        {activeChatTarget && (
+          <div className="absolute inset-0 z-40 bg-neutral-950 flex flex-col">
+            <RealTimeChatScreen
+              chatType={activeChatTarget.chatType}
+              recipient={activeChatTarget.recipient}
+              currentUser={{
+                id: currentUser?.id || 'guest_user',
+                name: currentUser?.fullName || 'Student User',
+                avatarUrl: currentUser?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100',
+                isAdmin: currentUser?.role === 'trader',
+              }}
+              onBack={() => setActiveChatTarget(null)}
+            />
+          </div>
+        )}
+
+        {/* Campus Zone Filter Bottom Sheet Modal */}
+        {isZoneFilterSheetOpen && (
+          <div 
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => setIsZoneFilterSheetOpen(false)}
+          >
+            <div 
+              className="w-full max-w-lg rounded-t-3xl border-t border-neutral-800 bg-neutral-900 p-6 space-y-4 text-white shadow-2xl animate-in slide-in-from-bottom duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+                <div className="flex items-center gap-2">
+                  <Filter className="h-5 w-5 text-orange-400" />
+                  <h3 className="text-sm font-bold">Select Campus Zone</h3>
+                </div>
+                <button 
+                  type="button" 
+                  onClick={() => setIsZoneFilterSheetOpen(false)}
+                  className="min-h-[44px] min-w-[44px] flex items-center justify-center text-neutral-400 hover:text-white"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                {CAMPUS_ZONES.map((zone) => {
+                  const isSelected = marketCampus === zone;
+                  return (
+                    <button
+                      key={zone}
+                      type="button"
+                      onClick={() => {
+                        setMarketCampus(zone);
+                        setIsZoneFilterSheetOpen(false);
+                      }}
+                      className={`w-full min-h-[44px] flex items-center justify-between px-4 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer border ${
+                        isSelected
+                          ? 'bg-orange-500/20 text-orange-400 border-orange-500/40'
+                          : 'bg-neutral-950 text-neutral-300 border-neutral-800 hover:bg-neutral-800'
+                      }`}
+                    >
+                      <span>{zone}</span>
+                      {isSelected && <CheckCircle2 className="h-4 w-4 text-orange-400" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* My Store Product Management Modal */}
+        {selectedMyStore && (
+          <MyStoreModal
+            isOpen={Boolean(selectedMyStore)}
+            onClose={() => setSelectedMyStore(null)}
+            myStore={selectedMyStore}
+            onUpdateStore={(updated) => {
+              setSelectedMyStore(updated);
+              onUpdateBusiness?.(updated);
+            }}
+            onOpenStorePublicView={(store) => {
+              setSelectedMyStore(null);
+              onSelectBusiness?.(store);
+            }}
+          />
+        )}
+
+        {/* Global Search Modal */}
+        <GlobalSearchModal
+          isOpen={isGlobalSearchOpen}
+          onClose={() => setIsGlobalSearchOpen(false)}
+          initialTab={initialSearchTab}
+          onSelectUser={(u) => {
+            const targetPath = `/profile/${u.id}`;
+            navigate(targetPath);
+            onViewUserProfile?.(u.id, u);
+          }}
+          onSelectPage={(pageId) => {
+            // open hub page
+          }}
+          onSelectProduct={(prodId) => {
+            // open product modal
+          }}
+          onSelectPost={(postId) => {
+            // open post modal
+          }}
+        />
+
+        {/* People Discovery / See More Modal */}
+        <PeopleDiscoveryModal
+          isOpen={isPeopleDiscoveryOpen}
+          onClose={() => setIsPeopleDiscoveryOpen(false)}
+          currentUser={currentUser}
+          onSelectUser={(u) => {
+            const targetPath = `/profile/${u.id}`;
+            navigate(targetPath);
+            onViewUserProfile?.(u.id, u);
+          }}
+          onToggleFollow={(id) => {
+            toggleFollowUser(id);
+          }}
+        />
+
+      {/* Hidden File Input for Avatar Change */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/*"
+        className="hidden"
+      />
+
+      <ProfileAvatarSheet
+        isOpen={isAvatarSheetOpen}
+        onClose={() => setIsAvatarSheetOpen(false)}
+        onViewSnap={handleViewOwnSnap}
+        onChangePhoto={() => fileInputRef.current?.click()}
+        onRemovePhoto={handleRemovePhoto}
+        hasActiveSnap={myActiveSnaps.length > 0}
+      />
+    </div>
+  );
+};
+
+=====END FILE=====
+
+=====FILE: src/components/UserProfileView.tsx=====
+import React, { useState } from 'react';
+import { 
+  Grid, 
+  Bookmark, 
+  Store, 
+  Share2, 
+  MessageCircle, 
+  UserPlus, 
+  UserCheck, 
+  MapPin, 
+  GraduationCap, 
+  ExternalLink, 
+  ShieldCheck, 
+  Heart, 
+  MessageSquare, 
+  Edit3, 
+  X,
+  CheckCircle2,
+  LogOut,
+  Settings,
+  Plus,
+  MoreVertical,
+  IdCard,
+  Camera,
+  ShoppingBag,
+  AlertTriangle,
+  Lock,
+  UserX,
+  FileText
+} from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useChat } from '../context/ChatContext';
+import { emitAppToast } from '../services/supabase';
+import { AppUser, CampusPost, CampusSnap, StudentBusiness } from '../types';
+import { EditProfileModal } from './EditProfileModal';
+import { VerificationModal } from './VerificationModal';
+import { StudentIDCard } from './playercard/StudentIDCard';
+
+export interface UserProfileViewProps {
+  user?: AppUser | null;
+  userPosts?: CampusPost[];
+  userSnaps?: CampusSnap[];
+  userBusinesses?: StudentBusiness[];
+  onOpenCreatePost?: () => void;
+  onOpenCreateBusiness?: () => void;
+  onSelectBusiness?: (biz: StudentBusiness) => void;
+  onOpenTraderProfile?: (biz: StudentBusiness) => void;
+}
+
+export const UserProfileView: React.FC<UserProfileViewProps> = ({
+  user: targetUserProp,
+  userPosts = [],
+  userSnaps = [],
+  userBusinesses = [],
+  onOpenCreatePost,
+  onOpenCreateBusiness,
+  onSelectBusiness,
+}) => {
+  const { currentUser, toggleFollowUser, signOut, syncUserProfileFromSupabase, updateUser } = useAuth();
+  const { openChatWithUser } = useChat();
+
+  const activeUser = targetUserProp || currentUser;
+  const isOwner = Boolean(currentUser && activeUser && currentUser.id === activeUser.id);
+
+  // Tabs: 'posts' | 'products' | 'saved' | 'student_card'
+  const [activeTab, setActiveTab] = useState<'posts' | 'products' | 'saved' | 'student_card'>('posts');
+  
+  // Modals & Menu
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showMoreUserMenu, setShowMoreUserMenu] = useState(false);
+  
+  // Follow state
+  const isFollowedLocal = Boolean(activeUser && currentUser?.followingUserIds?.includes(activeUser.id));
+  
+  // Cover banner edit state
+  const [coverUrl, setCoverUrl] = useState<string>(activeUser?.coverUrl || '');
+  const [coverImageFailed, setCoverImageFailed] = useState(false);
+  
+  // Lightbox preview modal
+  const [selectedGridItem, setSelectedGridItem] = useState<{
+    id: string;
+    mediaUrl?: string;
+    caption: string;
+    likesCount: number;
+    commentsCount?: number;
+    createdAt: string;
+  } | null>(null);
+
+  const [shareToast, setShareToast] = useState(false);
+
+  if (!activeUser) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-center text-neutral-400">
+        <p className="text-sm font-semibold mb-3">No user profile selected.</p>
+      </div>
+    );
+  }
+
+  const displayUsername = activeUser.username
+    ? activeUser.username.startsWith('@')
+      ? activeUser.username
+      : `@${activeUser.username}`
+    : (activeUser.email ? `@${activeUser.email.split('@')[0]}` : `@student_${activeUser.id.slice(0, 5)}`);
+
+  const universityName = activeUser.university || activeUser.campus || '';
+  const postsCount = userPosts.length;
+  const followersCount = (activeUser.followersCount ?? 0) + (isFollowedLocal ? 1 : 0);
+  const followingCount = activeUser.followingCount ?? 0;
+  const productsCount = userBusinesses.length;
+
+  // Fake check for active story ring around avatar
+  const hasActiveStory = userSnaps.length > 0;
+
+  // Followers / Following list modal
+  const [activeListModal, setActiveListModal] = useState<'followers' | 'following' | null>(null);
+
+  const handleToggleFollow = () => {
+    toggleFollowUser(activeUser.id);
+  };
+
+  const handleShareProfile = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(window.location.href);
+      setShareToast(true);
+      setTimeout(() => setShareToast(false), 3000);
+    }
+  };
+
+  const handleDirectMessage = () => {
+    if (currentUser && activeUser && currentUser.id === activeUser.id) {
+      emitAppToast("You can't message yourself", 'error');
+      return;
+    }
+    openChatWithUser(activeUser as AppUser);
+  };
+
+  const handleChangeCoverImage = () => {
+    const sampleCovers = [
+      'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=1200',
+      'https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200',
+      'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=1200',
+      'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=1200',
+    ];
+    const nextCover = sampleCovers[(sampleCovers.indexOf(coverUrl) + 1) % sampleCovers.length];
+    setCoverUrl(nextCover);
+    setCoverImageFailed(false);
+    if (isOwner) {
+      updateUser({ coverUrl: nextCover });
+    }
+  };
+
+  return (
+    <div className="w-full max-w-4xl mx-auto px-0 sm:px-4 py-0 sm:py-6 text-white font-sans">
+      
+      {/* 1. PROFILE HEADER WITH COVER BANNER */}
+      <div className="relative bg-neutral-900 rounded-none sm:rounded-3xl border-b sm:border border-neutral-800 overflow-hidden shadow-xl">
+        
+        {/* Cover Banner */}
+        <div className="relative h-36 sm:h-48 w-full bg-neutral-950 overflow-hidden">
+          {coverUrl && !coverImageFailed ? (
+            <img 
+              src={coverUrl} 
+              alt="Cover Banner" 
+              loading="lazy"
+              onError={() => setCoverImageFailed(true)}
+              className="w-full h-full object-cover opacity-80"
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-r from-neutral-950 via-neutral-900 to-orange-950/70 relative">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(249,115,22,0.35),transparent_70%)]" />
+            </div>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/20 to-transparent" />
+          
+          {/* Change Cover Button (Owner only) */}
+          {isOwner && (
+            <button
+              type="button"
+              onClick={handleChangeCoverImage}
+              className="absolute top-3 right-3 sm:right-14 p-2 rounded-xl bg-black/60 hover:bg-black text-white text-xs font-semibold backdrop-blur-md border border-white/10 flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Change cover photo"
+            >
+              <Camera className="h-3.5 w-3.5 text-orange-400" />
+              <span className="hidden sm:inline">Change Cover</span>
+            </button>
+          )}
+
+          {/* Settings Icon (Owner top right) */}
+          {isOwner && (
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              className="absolute top-3 right-3 p-2 rounded-xl bg-black/60 hover:bg-black text-white backdrop-blur-md border border-white/10 transition-colors cursor-pointer"
+              title="Profile Settings"
+            >
+              <Settings className="h-4 w-4 text-neutral-300 hover:text-white" />
+            </button>
+          )}
+        </div>
+
+        {/* Profile Content Overlay */}
+        <div className="px-4 sm:px-6 pb-6 pt-0 relative z-10">
+          
+          {/* Avatar row with stats/buttons */}
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 -mt-14 sm:-mt-16 mb-4">
+            
+            {/* Avatar with Story Ring and Add Story badge */}
+            <div className="relative self-center sm:self-auto shrink-0">
+              <div className={`p-1 rounded-full ${
+                hasActiveStory ? 'bg-gradient-to-tr from-amber-500 via-orange-500 to-rose-500' : 'bg-neutral-800'
+              }`}>
+                <img
+                  src={activeUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300'}
+                  alt={activeUser.fullName}
+                  loading="lazy"
+                  className="h-24 w-24 sm:h-28 sm:w-28 rounded-full object-cover border-4 border-neutral-900 bg-neutral-950"
+                />
+              </div>
+
+              {/* Add story shortcut on owner avatar */}
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={onOpenCreatePost}
+                  className="absolute bottom-1 right-1 p-1.5 rounded-full bg-orange-500 text-neutral-950 shadow-lg hover:scale-110 transition-transform cursor-pointer border-2 border-neutral-900"
+                  title="Add Story / Post"
+                >
+                  <Plus className="h-4 w-4 stroke-[3]" />
+                </button>
+              )}
+            </div>
+
+            {/* Profile Action Buttons */}
+            <div className="flex items-center justify-center sm:justify-end gap-2 self-center sm:self-end">
+              {isOwner ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditModalOpen(true)}
+                    className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-bold border border-neutral-700 transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Edit3 className="h-3.5 w-3.5 text-orange-400" />
+                    <span>Edit Profile</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleShareProfile}
+                    className="p-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition-colors border border-neutral-700 cursor-pointer"
+                    title="Share profile"
+                  >
+                    <Share2 className="h-4 w-4" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleToggleFollow}
+                    className={`px-5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      isFollowedLocal
+                        ? 'bg-neutral-800 text-neutral-200 border border-neutral-700 hover:bg-neutral-700'
+                        : 'bg-orange-500 text-neutral-950 hover:bg-orange-400 font-extrabold shadow-md'
+                    }`}
+                  >
+                    {isFollowedLocal ? (
+                      <>
+                        <UserCheck className="h-4 w-4 text-emerald-400" />
+                        <span>Following</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="h-4 w-4" />
+                        <span>Follow</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDirectMessage}
+                    className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-bold border border-neutral-700 transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <MessageCircle className="h-3.5 w-3.5 text-orange-400" />
+                    <span>Message</span>
+                  </button>
+
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowMoreUserMenu(!showMoreUserMenu)}
+                      className="p-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition-colors border border-neutral-700 cursor-pointer"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+                    {showMoreUserMenu && (
+                      <div className="absolute right-0 top-11 z-30 w-40 rounded-2xl bg-neutral-900 border border-neutral-800 shadow-2xl p-1 text-xs space-y-0.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            emitAppToast(`Blocked @${activeUser.username || activeUser.fullName}`, 'success');
+                            setShowMoreUserMenu(false);
+                          }}
+                          className="w-full text-left px-3 py-2 rounded-xl hover:bg-neutral-800 text-neutral-300 font-medium"
+                        >
+                          Block User
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            emitAppToast(`Reported @${activeUser.username || activeUser.fullName}`, 'success');
+                            setShowMoreUserMenu(false);
+                          }}
+                          className="w-full text-left px-3 py-2 rounded-xl hover:bg-neutral-800 text-rose-400 font-medium"
+                        >
+                          Report Profile
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+          </div>
+
+          {/* User Name, Username, Verified Badge & Bio */}
+          <div className="space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
+                  <span>{activeUser.fullName}</span>
+                  {activeUser.isVerified && (
+                    <span title="Verified Student">
+                      <CheckCircle2 className="h-5 w-5 text-sky-400 fill-sky-400/20" />
+                    </span>
+                  )}
+                </h1>
+                <p className="text-xs font-mono text-neutral-400 font-semibold mt-0.5">
+                  {displayUsername}
+                </p>
+              </div>
+
+              {/* Tappable Stats Row */}
+              <div className="flex items-center gap-6 py-2 px-4 rounded-2xl bg-neutral-950/60 border border-neutral-800/80 text-xs text-neutral-300 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('posts')}
+                  className="text-center hover:opacity-80 transition-opacity cursor-pointer"
+                >
+                  <span className="font-extrabold text-white text-sm block leading-none">{postsCount}</span>
+                  <span className="text-[10px] text-neutral-400">Posts</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveListModal('followers')}
+                  className="text-center hover:opacity-80 transition-opacity cursor-pointer"
+                >
+                  <span className="font-extrabold text-white text-sm block leading-none">{followersCount}</span>
+                  <span className="text-[10px] text-neutral-400">Followers</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveListModal('following')}
+                  className="text-center hover:opacity-80 transition-opacity cursor-pointer"
+                >
+                  <span className="font-extrabold text-white text-sm block leading-none">{followingCount}</span>
+                  <span className="text-[10px] text-neutral-400">Following</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Department, Level, Faculty & University Chips */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="px-2.5 py-1 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-semibold flex items-center gap-1">
+                <GraduationCap className="h-3.5 w-3.5" />
+                <span>{activeUser.level || '300L'}</span>
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs font-medium">
+                {activeUser.department || 'Computer Science'}
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-neutral-800 border border-neutral-700 text-neutral-300 text-xs font-medium">
+                {activeUser.faculty || 'Sciences'}
+              </span>
+              {universityName && (
+                <span className="px-2.5 py-1 rounded-lg bg-neutral-950 border border-neutral-800 text-neutral-400 text-xs font-mono font-medium">
+                  🎓 {universityName}
+                </span>
+              )}
+            </div>
+
+            {/* Bio */}
+            <p className="text-xs sm:text-sm text-neutral-300 pt-1 leading-relaxed max-w-2xl">
+              {activeUser.bio || 'Campus student connecting, discovering opportunities, and trading on Campus Foundry.'}
+            </p>
+
+            {activeUser.hostelLocation && (
+              <div className="flex items-center gap-1 text-xs text-emerald-400 font-medium pt-0.5">
+                <MapPin className="h-3.5 w-3.5" />
+                <span>{activeUser.hostelLocation}</span>
+              </div>
+            )}
+          </div>
+
+        </div>
+
+      </div>
+
+      {shareToast && (
+        <div className="my-3 p-2.5 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold text-center animate-in fade-in">
+          Profile link copied to clipboard!
+        </div>
+      )}
+
+      {/* 2. TABS UNDER HEADER */}
+      <div className="mt-4 border-b border-neutral-800 flex items-center justify-around sm:justify-start sm:gap-8 text-xs font-bold uppercase tracking-wider text-neutral-400 bg-neutral-950/80 backdrop-blur-md sticky top-16 z-20">
+        <button
+          type="button"
+          onClick={() => setActiveTab('posts')}
+          className={`flex items-center gap-2 py-3 px-3 sm:px-4 border-b-2 transition-all cursor-pointer ${
+            activeTab === 'posts'
+              ? 'border-orange-500 text-orange-400 font-extrabold'
+              : 'border-transparent hover:text-white'
+          }`}
+        >
+          <Grid className="h-4 w-4" />
+          <span>Posts</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('products')}
+          className={`flex items-center gap-2 py-3 px-3 sm:px-4 border-b-2 transition-all cursor-pointer ${
+            activeTab === 'products'
+              ? 'border-orange-500 text-orange-400 font-extrabold'
+              : 'border-transparent hover:text-white'
+          }`}
+        >
+          <ShoppingBag className="h-4 w-4" />
+          <span>Products {productsCount > 0 && `(${productsCount})`}</span>
+        </button>
+
+        {isOwner && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('saved')}
+            className={`flex items-center gap-2 py-3 px-3 sm:px-4 border-b-2 transition-all cursor-pointer ${
+              activeTab === 'saved'
+                ? 'border-orange-500 text-orange-400 font-extrabold'
+                : 'border-transparent hover:text-white'
+            }`}
+          >
+            <Bookmark className="h-4 w-4" />
+            <span>Saved</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('student_card')}
+          className={`flex items-center gap-2 py-3 px-3 sm:px-4 border-b-2 transition-all cursor-pointer ${
+            activeTab === 'student_card'
+              ? 'border-orange-500 text-orange-400 font-extrabold'
+              : 'border-transparent hover:text-white'
+          }`}
+        >
+          <IdCard className="h-4 w-4" />
+          <span>Student Card</span>
+        </button>
+      </div>
+
+      {/* 3. TAB CONTENTS */}
+      <div className="py-4">
+        
+        {/* TAB 1: POSTS (3-column photo/video grid with text posts) */}
+        {activeTab === 'posts' && (
+          <div>
+            {userPosts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-12 text-center bg-neutral-900/40 rounded-3xl border border-neutral-800">
+                <Grid className="h-10 w-10 text-neutral-600 mb-2" />
+                <h3 className="text-sm font-bold text-white mb-1">No Posts Yet</h3>
+                <p className="text-xs text-neutral-400 max-w-xs mb-4">
+                  {isOwner ? 'Share your first update with peers.' : `${activeUser.fullName} has not posted anything yet.`}
+                </p>
+                {isOwner && onOpenCreatePost && (
+                  <button
+                    type="button"
+                    onClick={onOpenCreatePost}
+                    className="px-4 py-2 rounded-xl bg-orange-500 text-neutral-950 text-xs font-bold hover:bg-orange-400 transition-all cursor-pointer"
+                  >
+                    Share First Post
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
+                {userPosts.map((post) => (
+                  <div
+                    key={post.id}
+                    onClick={() =>
+                      setSelectedGridItem({
+                        id: post.id,
+                        mediaUrl: post.mediaUrl,
+                        caption: post.content,
+                        likesCount: post.likesCount,
+                        commentsCount: post.commentsCount,
+                        createdAt: post.createdAt,
+                      })
+                    }
+                    className="group relative aspect-square bg-neutral-900 rounded-2xl overflow-hidden cursor-pointer shadow-md border border-neutral-800"
+                  >
+                    {post.mediaUrl ? (
+                      <img
+                        src={post.mediaUrl}
+                        alt={post.content}
+                        loading="lazy"
+                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+                    ) : (
+                      <div className="h-full w-full p-3 flex flex-col justify-between bg-gradient-to-br from-neutral-900 to-neutral-950 text-neutral-200">
+                        <p className="text-[11px] font-medium line-clamp-4 leading-relaxed">{post.content}</p>
+                        <span className="text-[9px] font-mono text-orange-400 font-bold">Text Post</span>
+                      </div>
+                    )}
+                    
+                    {/* Hover Overlay */}
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4 text-white font-bold text-xs sm:text-sm">
+                      <span className="flex items-center gap-1">
+                        <Heart className="h-4 w-4 fill-white" />
+                        <span>{post.likesCount}</span>
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MessageSquare className="h-4 w-4 fill-white" />
+                        <span>{post.commentsCount}</span>
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: PRODUCTS (Marketplace listings) */}
+        {activeTab === 'products' && (
+          <div>
+            <div className="flex items-center justify-between mb-4 px-1">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">
+                Marketplace Listings ({userBusinesses.length})
+              </h3>
+              {isOwner && onOpenCreateBusiness && (
+                <button
+                  type="button"
+                  onClick={onOpenCreateBusiness}
+                  className="px-3 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-neutral-950 text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-1"
+                >
+                  <Plus className="h-3.5 w-3.5 stroke-[3]" />
+                  <span>Add Listing</span>
+                </button>
+              )}
+            </div>
+
+            {userBusinesses.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-12 text-center bg-neutral-900/40 rounded-3xl border border-neutral-800">
+                <Store className="h-10 w-10 text-neutral-600 mb-2" />
+                <h3 className="text-sm font-bold text-white mb-1">No Active Listings</h3>
+                <p className="text-xs text-neutral-400 max-w-xs mb-4">
+                  {isOwner ? 'Turn your skills or items into campus listings.' : 'This user has no active trade listings.'}
+                </p>
+                {isOwner && onOpenCreateBusiness && (
+                  <button
+                    type="button"
+                    onClick={onOpenCreateBusiness}
+                    className="px-4 py-2 rounded-xl bg-orange-500 text-neutral-950 text-xs font-bold hover:bg-orange-400 transition-all cursor-pointer"
+                  >
+                    + Add First Listing
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {userBusinesses.map((biz) => (
+                  <div
+                    key={biz.id}
+                    onClick={() => onSelectBusiness?.(biz)}
+                    className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 hover:border-orange-500/50 transition-all cursor-pointer shadow-lg space-y-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={biz.imageUrl}
+                        alt={biz.name}
+                        loading="lazy"
+                        className="h-12 w-12 rounded-xl object-cover border border-neutral-700 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-sm font-bold text-white truncate flex items-center gap-1">
+                          <span>{biz.name}</span>
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        </h4>
+                        <span className="text-[10px] text-orange-400 font-semibold block">{biz.category}</span>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-neutral-300 line-clamp-2 leading-relaxed">{biz.description}</p>
+
+                    <div className="flex items-center justify-between text-xs pt-2 border-t border-neutral-800">
+                      <span className="font-extrabold text-emerald-400">₦{biz.startingPrice.toLocaleString()}</span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-bold uppercase">
+                        In Stock
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: SAVED (Owner Only) */}
+        {activeTab === 'saved' && isOwner && (
+          <div className="p-10 text-center bg-neutral-900/40 rounded-3xl border border-neutral-800 space-y-2">
+            <Bookmark className="h-10 w-10 text-neutral-600 mx-auto" />
+            <h4 className="text-xs font-bold text-white">Your Saved Bookmarks</h4>
+            <p className="text-[11px] text-neutral-400 max-w-xs mx-auto">
+              Posts and marketplace listings you bookmark will appear here for quick access.
+            </p>
+          </div>
+        )}
+
+        {/* TAB 4: STUDENT CARD */}
+        {activeTab === 'student_card' && (
+          <div className="max-w-md mx-auto">
+            <StudentIDCard
+              currentUser={activeUser}
+              onOpenAuth={() => {}}
+              onOpenGetVerified={() => setIsVerificationModalOpen(true)}
+            />
+          </div>
+        )}
+
+      </div>
+
+      {/* 4. LIGHTBOX MODAL FOR POSTS */}
+      {selectedGridItem && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4"
+          onClick={() => setSelectedGridItem(null)}
+        >
+          <div 
+            className="relative w-full max-w-lg rounded-3xl bg-neutral-900 border border-neutral-800 overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setSelectedGridItem(null)}
+              className="absolute top-3 right-3 z-20 p-2 rounded-full bg-black/60 text-white hover:bg-black cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            {selectedGridItem.mediaUrl && (
+              <img
+                src={selectedGridItem.mediaUrl}
+                alt="Post Preview"
+                className="w-full max-h-[60vh] object-cover"
+              />
+            )}
+
+            <div className="p-4 space-y-2">
+              <p className="text-xs text-white leading-relaxed">{selectedGridItem.caption}</p>
+              <div className="flex items-center justify-between text-xs text-neutral-400 pt-2 border-t border-neutral-800 font-mono">
+                <span className="flex items-center gap-1 text-rose-400 font-bold">
+                  <Heart className="h-3.5 w-3.5 fill-current" />
+                  <span>{selectedGridItem.likesCount} likes</span>
+                </span>
+                <span>{new Date(selectedGridItem.createdAt).toLocaleDateString()}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SETTINGS MODAL */}
+      {isSettingsOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+          onClick={() => setIsSettingsOpen(false)}
+        >
+          <div 
+            className="w-full max-w-md rounded-3xl bg-neutral-900 border border-neutral-800 p-6 space-y-5 text-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                <Settings className="h-4 w-4 text-orange-400" />
+                <span>Account & Privacy Settings</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(false)}
+                className="p-1 rounded-lg text-neutral-400 hover:text-white cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSettingsOpen(false);
+                  setIsEditModalOpen(true);
+                }}
+                className="w-full p-3 rounded-2xl bg-neutral-950 border border-neutral-800 hover:border-neutral-700 flex items-center justify-between text-neutral-200 cursor-pointer"
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  <Edit3 className="h-4 w-4 text-orange-400" />
+                  <span>Edit Profile Details</span>
+                </span>
+                <span className="text-[10px] text-neutral-500">Name, bio, level</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSettingsOpen(false);
+                  setIsVerificationModalOpen(true);
+                }}
+                className="w-full p-3 rounded-2xl bg-neutral-950 border border-neutral-800 hover:border-neutral-700 flex items-center justify-between text-neutral-200 cursor-pointer"
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                  <span>Student Verification</span>
+                </span>
+                <span className="text-[10px] text-neutral-500">
+                  {currentUser?.isVerified ? 'Verified ✓' : 'Get verified'}
+                </span>
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-neutral-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSettingsOpen(false);
+                  signOut();
+                }}
+                className="w-full py-3 rounded-2xl bg-rose-950/30 hover:bg-rose-900/50 border border-rose-500/30 text-rose-300 font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Sign Out of Account</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Profile Modal */}
+      <EditProfileModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+      />
+
+      {/* Student Verification Upload Modal */}
+      <VerificationModal
+        isOpen={isVerificationModalOpen}
+        onClose={() => setIsVerificationModalOpen(false)}
+        onStatusUpdated={() => {
+          if (currentUser) {
+            syncUserProfileFromSupabase(currentUser.id);
+          }
+        }}
+      />
+
+      {/* Followers / Following List Modal */}
+      {activeListModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in"
+          onClick={() => setActiveListModal(null)}
+        >
+          <div 
+            className="w-full max-w-sm rounded-3xl bg-neutral-900 border border-neutral-800 p-5 space-y-4 text-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+              <h3 className="text-sm font-bold capitalize">
+                {activeListModal} ({activeListModal === 'followers' ? followersCount : followingCount})
+              </h3>
+              <button
+                type="button"
+                onClick={() => setActiveListModal(null)}
+                className="p-1 rounded-lg text-neutral-400 hover:text-white cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              <div className="p-3 rounded-2xl bg-neutral-950 border border-neutral-800/80 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 w-8 rounded-full bg-orange-500/20 text-orange-400 flex items-center justify-center font-bold">
+                    🎓
+                  </div>
+                  <div>
+                    <span className="font-bold text-white block">Campus Peer</span>
+                    <span className="text-[10px] text-neutral-500 font-mono">@campus_student</span>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full bg-neutral-800 text-[10px] text-neutral-300 font-bold">
+                  Student
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};
+
+export default UserProfileView;
+
+=====END FILE=====
+
+=====FILE: src/mobile/screens/StoriesViewerScreen.tsx=====
+import React, { useState, useEffect, useRef } from 'react';
+import { MoreVertical, Trash2, AlertCircle, Loader2 } from 'lucide-react';
+import { OfflineReplyManager } from '../database/OfflineReplyManager';
+import { deleteSnapFromSupabase } from '../../services/supabase';
+
+export interface MobileStoryItem {
+  id: string;
+  mediaUrl: string;
+  type?: 'image' | 'video';
+  caption?: string;
+  timestamp: number;
+}
+
+export interface StoriesViewerScreenProps {
+  author: {
+    userId: string;
+    username: string;
+    fullName?: string;
+    avatarUrl: string;
+    department?: string;
+  };
+  stories: MobileStoryItem[];
+  onClose: () => void;
+  onOpenChatWithAuthor?: (authorId: string, replyInitialText?: string) => void;
+  currentUserId?: string;
+  onSnapDeleted?: (snapId: string) => void;
+}
+
+export const StoriesViewerScreen: React.FC<StoriesViewerScreenProps> = ({
+  author,
+  stories,
+  onClose,
+  onOpenChatWithAuthor,
+  currentUserId,
+  onSnapDeleted,
+}) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [replyInput, setReplyInput] = useState('');
+  const [showHeartBurst, setShowHeartBurst] = useState(false);
+  const [reactionsSent, setReactionsSent] = useState<string[]>([]);
+  const [isOfflineQueued, setIsOfflineQueued] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleDeleteSnap = async () => {
+    if (!currentStory) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const res = await deleteSnapFromSupabase(currentStory.id, currentStory.mediaUrl);
+      if (res.success) {
+        onSnapDeleted?.(currentStory.id);
+        setIsDeleting(false);
+        setShowConfirmDelete(false);
+        onClose();
+      } else {
+        setIsDeleting(false);
+        setDeleteError(res.error || 'Failed to delete snap. Please try again.');
+      }
+    } catch (err: any) {
+      setIsDeleting(false);
+      setDeleteError(err?.message || 'Failed to delete snap. Please try again.');
+    }
+  };
+
+  const currentStory = stories[currentIndex] || stories[0];
+  const STORY_DURATION_MS = 5000;
+  const timerRef = useRef<any>(null);
+  const startTimeRef = useRef<number>(Date.now());
+  const pausedProgressRef = useRef<number>(0);
+
+  // Auto progression timer
+  useEffect(() => {
+    if (!currentStory) return;
+
+    if (isPaused) {
+      clearInterval(timerRef.current);
+      return;
+    }
+
+    startTimeRef.current = Date.now() - pausedProgressRef.current * STORY_DURATION_MS;
+
+    timerRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTimeRef.current;
+      const newProgress = Math.min(1, elapsed / STORY_DURATION_MS);
+      setProgress(newProgress);
+
+      if (newProgress >= 1) {
+        clearInterval(timerRef.current);
+        handleNextStory();
+      }
+    }, 50);
+
+    return () => clearInterval(timerRef.current);
+  }, [currentIndex, isPaused]);
+
+  const handleNextStory = () => {
+    if (currentIndex < stories.length - 1) {
+      setCurrentIndex((prev) => prev + 1);
+      setProgress(0);
+      pausedProgressRef.current = 0;
+    } else {
+      onClose();
+    }
+  };
+
+  const handlePrevStory = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex((prev) => prev - 1);
+      setProgress(0);
+      pausedProgressRef.current = 0;
+    } else {
+      setProgress(0);
+      pausedProgressRef.current = 0;
+    }
+  };
+
+  const handlePressIn = () => {
+    pausedProgressRef.current = progress;
+    setIsPaused(true);
+  };
+
+  const handlePressOut = () => {
+    setIsPaused(false);
+  };
+
+  const handleSendReaction = async (emoji: string) => {
+    setReactionsSent((prev) => [...prev, emoji]);
+    setShowHeartBurst(true);
+    setTimeout(() => setShowHeartBurst(false), 900);
+
+    // Queue in WatermelonDB offline manager
+    try {
+      await OfflineReplyManager.enqueueReply(currentStory.id, author.userId, 'like', emoji);
+      setIsOfflineQueued(true);
+      setTimeout(() => setIsOfflineQueued(false), 2000);
+    } catch (e) {
+      console.warn('Queued reaction error:', e);
+    }
+  };
+
+  const handleSendReply = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!replyInput.trim()) return;
+
+    const text = replyInput.trim();
+    setReplyInput('');
+
+    try {
+      await OfflineReplyManager.enqueueReply(currentStory.id, author.userId, 'reply', text);
+      setIsOfflineQueued(true);
+      setTimeout(() => setIsOfflineQueued(false), 2500);
+
+      if (onOpenChatWithAuthor) {
+        onOpenChatWithAuthor(author.userId, `Replying to status: "${text}"`);
+      }
+    } catch (e) {
+      console.warn('Queue reply error:', e);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center select-none overflow-hidden touch-none">
+      {/* Container simulating native phone viewport */}
+      <div className="relative w-full max-w-md h-full max-h-[860px] bg-neutral-950 flex flex-col justify-between overflow-hidden shadow-2xl">
+        {/* Story Media Background */}
+        <div
+          className="absolute inset-0 z-0 bg-neutral-900"
+          onMouseDown={handlePressIn}
+          onMouseUp={handlePressOut}
+          onTouchStart={handlePressIn}
+          onTouchEnd={handlePressOut}
+        >
+          {currentStory?.mediaUrl ? (
+            <img
+              src={currentStory.mediaUrl}
+              alt="Story"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-900 via-neutral-900 to-amber-950 p-6 text-center text-white">
+              <p className="text-xl font-medium leading-relaxed">{currentStory?.caption || 'Campus Update'}</p>
+            </div>
+          )}
+
+          {/* Touch navigation zones */}
+          <div
+            className="absolute top-16 left-0 w-1/3 bottom-24 z-10 cursor-pointer"
+            onClick={handlePrevStory}
+          />
+          <div
+            className="absolute top-16 right-0 w-2/3 bottom-24 z-10 cursor-pointer"
+            onClick={handleNextStory}
+          />
+
+          {/* Subtle gradient vignette for text legibility */}
+          <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/60" />
+        </div>
+
+        {/* Top Header & Segmented Progress Bars */}
+        <div className="relative z-20 pt-4 px-3 space-y-2.5">
+          {/* Segmented Progress Bars (WhatsApp / Instagram style) */}
+          <div className="flex gap-1.5 w-full">
+            {stories.map((st, idx) => {
+              let fill = 0;
+              if (idx < currentIndex) fill = 100;
+              else if (idx === currentIndex) fill = progress * 100;
+              return (
+                <div key={st.id} className="h-1 flex-1 bg-white/30 rounded-full overflow-hidden backdrop-blur-sm">
+                  <div
+                    className="h-full bg-white rounded-full transition-all duration-75"
+                    style={{ width: `${fill}%` }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* User Info Bar */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <img
+                src={author.avatarUrl}
+                alt={author.username}
+                className="w-10 h-10 rounded-full border-2 border-amber-500 object-cover shadow-md"
+              />
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-bold text-white tracking-wide">{author.username}</span>
+                  <span className="text-[10px] text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded-full border border-amber-500/30">
+                    Campus
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-300">
+                  {author.department || 'Undergraduate'} • {Math.round((Date.now() - currentStory.timestamp) / 3600000)}h ago
+                </p>
+              </div>
+            </div>
+
+            {/* Actions: Pause status indicator & Close button */}
+            <div className="flex items-center gap-2 relative">
+              {isPaused && (
+                <span className="text-[10px] bg-black/60 text-amber-300 px-2 py-0.5 rounded-full backdrop-blur-md">
+                  Paused
+                </span>
+              )}
+              {currentUserId && currentUserId === author.userId && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowMenu(!showMenu);
+                    }}
+                    className="h-8 w-8 rounded-full bg-black/60 hover:bg-neutral-800 flex items-center justify-center text-white backdrop-blur-md transition-colors"
+                    title="Snap Options"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+
+                  {showMenu && (
+                    <div className="absolute right-0 top-10 w-44 rounded-2xl bg-neutral-900 border border-neutral-800 shadow-2xl p-1.5 z-30 animate-in fade-in duration-150">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowMenu(false);
+                          setShowConfirmDelete(true);
+                        }}
+                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-rose-400 hover:bg-rose-500/10 flex items-center gap-2 transition-colors"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        <span>Delete Snap</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-black/40 hover:bg-black/70 text-white flex items-center justify-center backdrop-blur-md transition-colors"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Reaction Burst Overlay */}
+        {showHeartBurst && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none animate-ping duration-700">
+            <span className="text-7xl drop-shadow-2xl">❤️</span>
+          </div>
+        )}
+
+        {/* Offline sync banner if queued */}
+        {isOfflineQueued && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 px-3 py-1 bg-amber-500/90 text-neutral-950 font-bold text-xs rounded-full shadow-lg backdrop-blur-md animate-bounce">
+            ⚡ Saved offline — will sync when connected
+          </div>
+        )}
+
+        {/* Bottom Story Caption & Reply Input (WhatsApp & IG style) */}
+        <div className="relative z-20 p-4 space-y-3">
+          {currentStory?.caption && (
+            <div className="p-3 rounded-2xl bg-black/40 backdrop-blur-md border border-white/10 text-white text-xs leading-relaxed max-h-24 overflow-y-auto">
+              {currentStory.caption}
+            </div>
+          )}
+
+          {/* Quick Reaction Tray (WhatsApp Status Reaction Emojis) */}
+          <div className="flex justify-between px-2">
+            {['❤️', '🔥', '😂', '👏', '🎓', '⚡'].map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => handleSendReaction(emoji)}
+                className="text-xl p-1.5 hover:scale-125 active:scale-95 transition-transform"
+                title={`React ${emoji}`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+
+          {/* Direct Reply Bar */}
+          <form onSubmit={handleSendReply} className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder={`Reply to ${author.username}...`}
+              value={replyInput}
+              onFocus={() => setIsPaused(true)}
+              onBlur={() => setIsPaused(false)}
+              onChange={(e) => setReplyInput(e.target.value)}
+              className="flex-1 bg-black/60 border border-white/20 rounded-full px-4 py-2.5 text-xs text-white placeholder-white/60 focus:outline-none focus:border-amber-400 backdrop-blur-md"
+            />
+            <button
+              type="submit"
+              disabled={!replyInput.trim()}
+              className="px-4 py-2.5 rounded-full bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs disabled:opacity-40 transition-colors shadow-lg shadow-amber-500/20"
+            >
+              Send
+            </button>
+          </form>
+        </div>
+
+        {/* Delete Confirmation Modal */}
+        {showConfirmDelete && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+            <div className="w-full max-w-xs rounded-3xl bg-neutral-900 border border-neutral-800 p-6 text-center space-y-4 shadow-2xl">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto">
+                <Trash2 className="h-6 w-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-white">Delete this snap?</h3>
+                <p className="text-xs text-neutral-400">This can't be undone and will be removed instantly.</p>
+              </div>
+
+              {deleteError && (
+                <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-semibold flex items-center gap-2 text-left">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setShowConfirmDelete(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-xs font-semibold text-neutral-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleDeleteSnap}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-neutral-950 font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-1.5"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <span>Delete</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+=====END FILE=====
+
+=====FILE: src/mobile/auth/BiometricsService.ts=====
+/**
+ * CampusFoundry Mobile - Biometric Security Service
+ * Scaffolds Expo LocalAuthentication (FaceID, TouchID, Android Biometrics)
+ * with graceful fallback for web and development simulation.
+ */
+
+export interface BiometricAuthResult {
+  success: boolean;
+  error?: string;
+  biometricType?: 'FACE_ID' | 'FINGERPRINT' | 'IRIS' | 'NONE';
+}
+
+const STORAGE_BIOMETRIC_PREF_KEY = 'campusfoundry_biometric_enabled';
+const STORAGE_BIOMETRIC_TOKEN_KEY = 'campusfoundry_biometric_token';
+
+export class BiometricsService {
+  /**
+   * Checks whether the device hardware supports biometric authentication
+   */
+  static async isHardwareSupported(): Promise<boolean> {
+    try {
+      // In production Expo React Native:
+      // const LocalAuthentication = require('expo-local-authentication');
+      // return await LocalAuthentication.hasHardwareAsync();
+      if (typeof window !== 'undefined' && window.PublicKeyCredential) {
+        return true;
+      }
+      return true; // Supported in mobile context
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Checks whether biometric credentials (fingerprint/face) are enrolled
+   */
+  static async isEnrolled(): Promise<boolean> {
+    try {
+      // In production Expo React Native:
+      // const LocalAuthentication = require('expo-local-authentication');
+      // return await LocalAuthentication.isEnrolledAsync();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Gets the active biometric sensor type (Face ID vs Fingerprint)
+   */
+  static async getBiometricType(): Promise<'FACE_ID' | 'FINGERPRINT' | 'NONE'> {
+    // Detect iOS vs Android user-agent or native platform
+    const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    return isIOS ? 'FACE_ID' : 'FINGERPRINT';
+  }
+
+  /**
+   * Prompts user for biometric unlock
+   */
+  static async authenticateUser(promptMessage: string = 'Scan Face ID or Fingerprint to unlock CampusFoundry'): Promise<BiometricAuthResult> {
+    const type = await this.getBiometricType();
+
+    try {
+      // In production Expo:
+      // const LocalAuthentication = require('expo-local-authentication');
+      // const result = await LocalAuthentication.authenticateAsync({
+      //   promptMessage,
+      //   fallbackLabel: 'Use UNILORIN Student Password / OTP',
+      //   disableDeviceFallback: false,
+      // });
+      // return { success: result.success, biometricType: type, error: result.error };
+
+      // In web/preview environment, simulate biometric prompt
+      const isEnabled = this.isBiometricsEnabled();
+      if (!isEnabled) {
+        return {
+          success: false,
+          error: 'Biometrics not yet enabled for this device',
+          biometricType: type,
+        };
+      }
+
+      return {
+        success: true,
+        biometricType: type,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err?.message || 'Biometric authentication failed',
+        biometricType: type,
+      };
+    }
+  }
+
+  /**
+   * Enables or disables biometrics for the logged-in student
+   */
+  static setBiometricsEnabled(enabled: boolean, studentEmail?: string): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(STORAGE_BIOMETRIC_PREF_KEY, JSON.stringify(enabled));
+        if (enabled && studentEmail) {
+          localStorage.setItem(STORAGE_BIOMETRIC_TOKEN_KEY, studentEmail);
+        } else if (!enabled) {
+          localStorage.removeItem(STORAGE_BIOMETRIC_TOKEN_KEY);
+        }
+      }
+    } catch (e) {
+      console.warn('Storage error saving biometric preference:', e);
+    }
+  }
+
+  /**
+   * Returns whether biometrics is active for this device
+   */
+  static isBiometricsEnabled(): boolean {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const val = localStorage.getItem(STORAGE_BIOMETRIC_PREF_KEY);
+        return val ? JSON.parse(val) : false;
+      }
+    } catch {}
+    return false;
+  }
+
+  /**
+   * Gets the stored student email linked to biometric credentials
+   */
+  static getStoredBiometricEmail(): string | null {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        return localStorage.getItem(STORAGE_BIOMETRIC_TOKEN_KEY);
+      }
+    } catch {}
+    return null;
+  }
+}
+
+=====END FILE=====
+
+=====FILE: src/mobile/database/schema.ts=====
+import { appSchema, tableSchema } from '@nozbe/watermelondb';
+
+export const schema = appSchema({
+  version: 2,
+  tables: [
+    tableSchema({
+      name: 'pending_status_replies',
+      columns: [
+        { name: 'story_id', type: 'string' },
+        { name: 'story_author_id', type: 'string' },
+        { name: 'type', type: 'string' }, // 'reply' | 'like'
+        { name: 'content', type: 'string', isOptional: true }, // Text message or reaction emoji
+        { name: 'client_message_id', type: 'string' },
+        { name: 'sync_status', type: 'string' }, // 'pending' | 'syncing' | 'failed'
+        { name: 'created_at', type: 'number' },
+      ],
+    }),
+    tableSchema({
+      name: 'sender_keys',
+      columns: [
+        { name: 'author_user_id', type: 'string' },
+        { name: 'session_id', type: 'string' },
+        { name: 'chain_key', type: 'string' },
+        { name: 'signature_pub_key', type: 'string' },
+        { name: 'updated_at', type: 'number' },
+      ],
+    }),
+  ],
+});
+
+export default schema;
+
+=====END FILE=====
+
+=====FILE: src/mobile/database/PendingReply.ts=====
+import { Model } from '@nozbe/watermelondb';
+import { field, date, readonly } from '@nozbe/watermelondb/decorators';
+
+export default class PendingReply extends Model {
+  static table = 'pending_status_replies';
+
+  @field('story_id') storyId!: string;
+  @field('story_author_id') storyAuthorId!: string;
+  @field('type') type!: 'reply' | 'like';
+  @field('content') content?: string;
+  @field('client_message_id') clientMessageId!: string;
+  @field('sync_status') replySyncStatus!: 'pending' | 'syncing' | 'failed';
+  @readonly @date('created_at') createdAt!: Date;
+}
+
+export { PendingReply };
+
+=====END FILE=====
+

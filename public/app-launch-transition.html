@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>App Launch (Expand-from-Origin) Transition Demo</title>
+  <style>
+    /* ==========================================================================
+       CSS STYLES & LAYOUT
+       ========================================================================== */
+    :root {
+      --bg: #09090b;
+      --card-bg: #18181b;
+      --border: #27272a;
+      --accent: #10b981;
+      --accent-glow: rgba(16, 185, 129, 0.25);
+      --text: #f4f4f5;
+      --text-muted: #a1a1aa;
+      /* Easing: iOS/Android app opening fluid spring curve */
+      --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);
+      --anim-duration: 450ms;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow-x: hidden;
+    }
+
+    /* Container for demo showcase */
+    .showcase-wrapper {
+      max-width: 600px;
+      width: 100%;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 28px;
+    }
+
+    .header-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      border-radius: 9999px;
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    p.subtitle {
+      font-size: 15px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ==========================================================================
+       1. TRIGGER BUTTON (COLLAPSED STATE)
+       ========================================================================== */
+    .trigger-btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 28px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #09090b;
+      background: linear-gradient(135deg, #34d399, #10b981);
+      border: none;
+      border-radius: 14px;
+      cursor: pointer;
+      box-shadow: 0 4px 20px var(--accent-glow);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      user-select: none;
+    }
+
+    .trigger-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px var(--accent-glow);
+    }
+
+    .trigger-btn:active {
+      transform: scale(0.96);
+    }
+
+    .btn-icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    /* ==========================================================================
+       2. MODAL BACKDROP (FADES IN)
+       ========================================================================== */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--anim-duration) var(--ease-fluid);
+      z-index: 999;
+    }
+
+    .modal-backdrop.is-visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* ==========================================================================
+       3. EXPANDING CONTAINER (EXPANDED MODAL OVERLAY)
+       ========================================================================== */
+    .expand-container {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      width: 90%;
+      max-width: 540px;
+      max-height: 85vh;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8),
+                  0 0 0 1px rgba(255, 255, 255, 0.05);
+      z-index: 1000;
+      overflow-y: auto;
+      pointer-events: none;
+      visibility: hidden;
+
+      /* Hardware accelerated transform with fluid iOS-like curve */
+      transform-origin: 0 0;
+      will-change: transform, border-radius, opacity;
+      transition: transform var(--anim-duration) var(--ease-fluid),
+                  border-radius var(--anim-duration) var(--ease-fluid),
+                  opacity var(--anim-duration) var(--ease-fluid);
+    }
+
+    .expand-container.is-active {
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    /* ==========================================================================
+       4. INNER UNLOCKED CONTENT (FADES IN SMOOTHLY)
+       ========================================================================== */
+    .modal-content {
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      opacity: 0;
+      transform: translateY(12px);
+      transition: opacity 280ms ease 120ms, transform 280ms var(--ease-fluid) 120ms;
+    }
+
+    .expand-container.is-expanded .modal-content {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-title-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .modal-app-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #10b981, #059669);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+
+    .modal-title {
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .modal-category {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: monospace;
+    }
+
+    .close-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #27272a;
+      border: 1px solid #3f3f46;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.15s ease;
+    }
+
+    .close-btn:hover {
+      background: #3f3f46;
+      transform: scale(1.05);
+    }
+
+    .feature-card {
+      background: #09090b;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .feature-card h4 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .feature-card p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .action-primary {
+      flex: 1;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--accent);
+      color: #09090b;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .action-primary:hover {
+      opacity: 0.9;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="showcase-wrapper">
+    <div class="header-badge">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+      </svg>
+      Fluid Expand-from-Origin Motion
+    </div>
+
+    <h1>App Launch Transition</h1>
+    <p class="subtitle">
+      Click the button below. The modal calculates the exact dynamic bounding rectangle of the trigger button on screen, expanding outward from that point like an iOS/Android application launch.
+    </p>
+
+    <!-- 1. ACTION TRIGGER BUTTON -->
+    <button id="launchButton" class="trigger-btn" aria-haspopup="dialog" aria-expanded="false">
+      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+        <line x1="8" y1="21" x2="16" y2="21"></line>
+        <line x1="12" y1="17" x2="12" y2="21"></line>
+      </svg>
+      <span>Launch Interactive Panel</span>
+    </button>
+  </div>
+
+  <!-- 2. BLURRED BACKDROP -->
+  <div id="modalBackdrop" class="modal-backdrop" aria-hidden="true"></div>
+
+  <!-- 3. EXPANDING CONTAINER (CALCULATED POSITIONAL ORIGIN) -->
+  <div id="expandContainer" class="expand-container" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-content">
+      
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-app-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+            </svg>
+          </div>
+          <div>
+            <h3 class="modal-title">Unlocked Application Panel</h3>
+            <div class="modal-category">TRANSFORM: getBoundingClientRect()</div>
+          </div>
+        </div>
+
+        <button id="closeButton" class="close-btn" aria-label="Close modal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="feature-card">
+        <h4>1. First (Initial Geometry)</h4>
+        <p>Before launching, the button's exact viewport coordinates are measured via <code>button.getBoundingClientRect()</code>.</p>
+      </div>
+
+      <div class="feature-card">
+        <h4>2. Last & Invert (Target Geometry)</h4>
+        <p>The container targets its destination dimensions in the viewport, and transforms backward to match the button's position and scale.</p>
+      </div>
+
+      <div class="feature-card">
+        <h4>3. Play (Hardware-Accelerated Animation)</h4>
+        <p>A single fluid transition smoothly animates the transform back to <code>translate(0, 0) scale(1)</code> with spring-like cubic bezier easing.</p>
+      </div>
+
+      <div class="modal-actions">
+        <button id="dismissActionBtn" class="action-primary">Complete & Return</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       JAVASCRIPT: POSITIONAL TRANSFORM CALCULATION (FLIP TECHNIQUE)
+       ========================================================================== -->
+  <script>
+    (function () {
+      const triggerBtn = document.getElementById('launchButton');
+      const container = document.getElementById('expandContainer');
+      const backdrop = document.getElementById('modalBackdrop');
+      const closeBtn = document.getElementById('closeButton');
+      const dismissActionBtn = document.getElementById('dismissActionBtn');
+
+      let isAnimating = false;
+
+      /**
+       * Calculates the inverted transform from the target expanded position
+       * back to the exact initial button bounding rectangle.
+       */
+      function calculateTransformOriginOffsets(btnRect, targetRect) {
+        // Compute scale ratios
+        const scaleX = btnRect.width / targetRect.width;
+        const scaleY = btnRect.height / targetRect.height;
+
+        // Compute translation deltas between button top-left and modal top-left
+        const translateX = btnRect.left - targetRect.left;
+        const translateY = btnRect.top - targetRect.top;
+
+        return { scaleX, scaleY, translateX, translateY };
+      }
+
+      function openModal() {
+        if (isAnimating) return;
+        isAnimating = true;
+
+        // 1. Lock background scrolling
+        document.body.style.overflow = 'hidden';
+
+        // 2. Measure button's exact starting bounding box ("First")
+        const btnRect = triggerBtn.getBoundingClientRect();
+        const btnRadius = window.getComputedStyle(triggerBtn).borderRadius;
+
+        // 3. Make container active to measure destination dimensions ("Last")
+        container.classList.add('is-active');
+        backdrop.classList.add('is-visible');
+
+        // Disable CSS transitions temporarily to set initial inverted position without animation
+        container.style.transition = 'none';
+
+        const targetRect = container.getBoundingClientRect();
+
+        // 4. Calculate inversion parameters ("Invert")
+        const { scaleX, scaleY, translateX, translateY } = calculateTransformOriginOffsets(btnRect, targetRect);
+
+        // Apply initial transform to match button perfectly
+        container.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`;
+        container.style.borderRadius = btnRadius;
+        container.style.opacity = '0.9';
+
+        // Force browser layout/reflow so the inverted state takes effect
+        void container.offsetWidth;
+
+        // 5. Restore fluid transition and animate to destination ("Play")
+        container.style.transition = '';
+        container.style.transform = 'translate(0px, 0px) scale(1, 1)';
+        container.style.borderRadius = '28px';
+        container.style.opacity = '1';
+
+        // Mark expanded to trigger inner content fade-in
+        container.classList.add('is-expanded');
+
+        triggerBtn.setAttribute('aria-expanded', 'true');
+        container.setAttribute('aria-hidden', 'false');
+
+        setTimeout(() => {
+          isAnimating = false;
+        }, 450);
+      }
+
+      function closeModal() {
+        if (isAnimating) return;
+        isAnimating = true;
+
+        // Measure button again in case of resize or scroll
+        const btnRect = triggerBtn.getBoundingClientRect();
+        const btnRadius = window.getComputedStyle(triggerBtn).borderRadius;
+        const targetRect = container.getBoundingClientRect();
+
+        const { scaleX, scaleY, translateX, translateY } = calculateTransformOriginOffsets(btnRect, targetRect);
+
+        // 1. Fade out inside content immediately
+        container.classList.remove('is-expanded');
+        backdrop.classList.remove('is-visible');
+
+        // 2. Reverse transform container back into button coordinates
+        container.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`;
+        container.style.borderRadius = btnRadius;
+        container.style.opacity = '0';
+
+        // 3. After animation completes, reset states
+        setTimeout(() => {
+          container.classList.remove('is-active');
+          container.style.transform = '';
+          container.style.borderRadius = '';
+          container.style.opacity = '';
+          container.style.transition = '';
+
+          // Unlock background scrolling
+          document.body.style.overflow = '';
+          triggerBtn.setAttribute('aria-expanded', 'false');
+          container.setAttribute('aria-hidden', 'true');
+          isAnimating = false;
+        }, 450);
+      }
+
+      // Event Listeners
+      triggerBtn.addEventListener('click', openModal);
+      closeBtn.addEventListener('click', closeModal);
+      dismissActionBtn.addEventListener('click', closeModal);
+      backdrop.addEventListener('click', closeModal);
+
+      // Handle Escape key
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && container.classList.contains('is-active')) {
+          closeModal();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

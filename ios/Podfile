@@ -1,0 +1,33 @@
+require_relative '../node_modules/react-native/scripts/react_native_pods'
+require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+
+platform :ios, '14.0'
+prepare_react_native_project!
+
+target 'CampusFoundry' do
+  config = use_native_modules!
+
+  # Pods for CampusFoundry
+  use_react_native!(
+    :path => config[:reactNativePath],
+    # An absolute path to your application root.
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
+
+  # Target dependencies
+  pod 'react-native-background-fetch', :path => '../node_modules/react-native-background-fetch'
+  pod 'react-native-screen-capture', :path => '../node_modules/react-native-screen-capture'
+  pod 'react-native-fs', :path => '../node_modules/react-native-fs'
+
+  target 'CampusFoundryTests' do
+    inherit! :complete
+  end
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false
+    )
+  end
+end
