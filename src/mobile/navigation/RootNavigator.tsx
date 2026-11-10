@@ -696,7 +696,7 @@ export const RootNavigator: React.FC<RootNavigatorProps> = ({
             </button>
 
             {/* Feed Header Write "+" Trigger */}
-            {activeTab === 'feed' && (
+            {activeTab === 'feed' && isApprovedWriter === true && (
               <button
                 type="button"
                 onClick={() => navigate('/write')}
@@ -1710,6 +1710,7 @@ export const RootNavigator: React.FC<RootNavigatorProps> = ({
                   onOpenCreatePost={onOpenCreatePost}
                   onOpenCreateBusiness={onOpenCreateBusiness}
                   onSelectBusiness={onSelectBusiness}
+                  onOpenBecomeTrader={onOpenBecomeTrader}
                 />
               )}
             </div>

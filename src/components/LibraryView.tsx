@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { fetchPublishedArticles } from '../services/articles';
-import { fetchApprovedWriters } from '../services/writers';
+import { fetchApprovedWriters, checkIsApprovedWriter } from '../services/writers';
 import type { ArticleWithAuthor } from '../types/articles';
 import type { ApprovedWriterProfile } from '../types/writers';
 
@@ -29,13 +29,13 @@ interface LibraryViewProps {
 }
 
 const CATEGORIES = [
-  'All',
-  'Academics & GNS',
-  'Tech & Gadgets',
-  'Student Hustle & Trades',
-  'Campus Life',
-  'Career & Growth',
-  'Opinions & Essays'
+  'For You',
+  'Trending',
+  'Latest',
+  'Academics',
+  'Tech',
+  'Hustle',
+  'Campus Life'
 ];
 
 export const LibraryView: React.FC<LibraryViewProps> = ({ onBack, onOpenWriterApplication }) => {
@@ -43,8 +43,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onBack, onOpenWriterAp
   const { currentUser, toggleFollowUser } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'articles' | 'writers'>('articles');
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [selectedCategory, setSelectedCategory] = useState<string>('For You');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isApprovedWriter, setIsApprovedWriter] = useState<boolean>(false);
 
   // Articles state
   const [articles, setArticles] = useState<ArticleWithAuthor[]>([]);
@@ -85,19 +86,49 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onBack, onOpenWriterAp
   useEffect(() => {
     loadArticles();
     loadWriters();
+    if (currentUser?.id) {
+      checkIsApprovedWriter(currentUser.id).then(setIsApprovedWriter);
+    } else {
+      setIsApprovedWriter(false);
+    }
   }, [currentUser?.id]);
 
-  const filteredArticles = articles.filter((art) => {
-    const matchesCat =
-      selectedCategory === 'All' ||
-      (art.category && art.category.toLowerCase() === selectedCategory.toLowerCase());
-    const matchesQuery =
-      !searchQuery.trim() ||
-      art.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (art.excerpt && art.excerpt.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (art.author?.name && art.author.name.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesCat && matchesQuery;
-  });
+  const filteredArticles = articles
+    .filter((art) => {
+      let matchesCat = true;
+      if (selectedCategory === 'For You' || selectedCategory === 'Trending' || selectedCategory === 'Latest') {
+        matchesCat = true;
+      } else if (selectedCategory === 'Academics') {
+        matchesCat = art.category ? art.category.toLowerCase().includes('academic') || art.category.toLowerCase().includes('gns') : false;
+      } else if (selectedCategory === 'Tech') {
+        matchesCat = art.category ? art.category.toLowerCase().includes('tech') || art.category.toLowerCase().includes('gadget') : false;
+      } else if (selectedCategory === 'Hustle') {
+        matchesCat = art.category ? art.category.toLowerCase().includes('hustle') || art.category.toLowerCase().includes('trade') : false;
+      } else if (selectedCategory === 'Campus Life') {
+        matchesCat = art.category ? art.category.toLowerCase().includes('campus') || art.category.toLowerCase().includes('life') : false;
+      } else {
+        matchesCat = !art.category || art.category.toLowerCase() === selectedCategory.toLowerCase();
+      }
+
+      const matchesQuery =
+        !searchQuery.trim() ||
+        art.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (art.excerpt && art.excerpt.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (art.author?.name && art.author.name.toLowerCase().includes(searchQuery.toLowerCase()));
+      return matchesCat && matchesQuery;
+    })
+    .sort((a, b) => {
+      if (selectedCategory === 'Trending') {
+        // Sort by likes + views (Trending)
+        const scoreA = (a.likes_count || 0) + (a.views_count || 0);
+        const scoreB = (b.likes_count || 0) + (b.views_count || 0);
+        return scoreB - scoreA;
+      }
+      // Default: Latest (newest first)
+      const dateA = a.published_at ? new Date(a.published_at).getTime() : new Date(a.created_at).getTime();
+      const dateB = b.published_at ? new Date(b.published_at).getTime() : new Date(b.created_at).getTime();
+      return dateB - dateA;
+    });
 
   const filteredWriters = writers.filter((w) => {
     if (!searchQuery.trim()) return true;
@@ -145,27 +176,37 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onBack, onOpenWriterAp
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleWriteClick}
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-neutral-950 font-black text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-            >
-              <PenTool className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Write Article</span>
-            </button>
+            {!isApprovedWriter ? (
+              <button
+                type="button"
+                onClick={() => navigate('/write')}
+                className="text-xs text-neutral-400 hover:text-amber-400 transition-colors cursor-pointer font-medium hover:underline"
+              >
+                Become a Writer
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleWriteClick}
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+              >
+                <PenTool className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Write Article</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Library View Switcher: Articles vs Writers Directory */}
-      <div className="flex items-center gap-2 p-1 bg-neutral-900/90 rounded-2xl border border-neutral-800">
+      {/* Library View Switcher: Articles vs Writers Directory (Minimal underline tab style) */}
+      <div className="flex items-center gap-6 border-b border-neutral-800/80 px-1">
         <button
           type="button"
           onClick={() => setActiveTab('articles')}
-          className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+          className={`py-2.5 text-xs font-semibold tracking-wide transition-all cursor-pointer border-b-2 flex items-center gap-1.5 ${
             activeTab === 'articles'
-              ? 'bg-amber-500 text-neutral-950 shadow-md font-black'
-              : 'text-neutral-400 hover:text-white'
+              ? 'border-orange-500 text-white font-bold'
+              : 'border-transparent text-neutral-400 hover:text-neutral-200'
           }`}
         >
           <BookOpen className="w-4 h-4" />
@@ -175,10 +216,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onBack, onOpenWriterAp
         <button
           type="button"
           onClick={() => setActiveTab('writers')}
-          className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+          className={`py-2.5 text-xs font-semibold tracking-wide transition-all cursor-pointer border-b-2 flex items-center gap-1.5 ${
             activeTab === 'writers'
-              ? 'bg-amber-500 text-neutral-950 shadow-md font-black'
-              : 'text-neutral-400 hover:text-white'
+              ? 'border-orange-500 text-white font-bold'
+              : 'border-transparent text-neutral-400 hover:text-neutral-200'
           }`}
         >
           <Users className="w-4 h-4" />
@@ -205,17 +246,17 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onBack, onOpenWriterAp
       {/* SECTION 1: ARTICLES */}
       {activeTab === 'articles' && (
         <div className="space-y-4">
-          {/* Category Filter Chips */}
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+          {/* Category Filter Tabs: Single horizontally scrollable row of minimal underline tabs */}
+          <div className="flex items-center gap-6 overflow-x-auto no-scrollbar border-b border-neutral-800/60 pb-1">
             {CATEGORIES.map((cat) => (
               <button
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`min-h-[38px] px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border shrink-0 ${
+                className={`py-2 text-[14px] font-medium whitespace-nowrap transition-all cursor-pointer border-b-2 shrink-0 ${
                   selectedCategory === cat
-                    ? 'bg-amber-500 text-neutral-950 border-amber-500 font-bold shadow-sm'
-                    : 'bg-neutral-900/80 text-neutral-300 border-neutral-800 hover:text-white hover:bg-neutral-800'
+                    ? 'border-orange-500 text-white font-bold'
+                    : 'border-transparent text-neutral-400 hover:text-neutral-200'
                 }`}
               >
                 {cat}
@@ -248,21 +289,25 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onBack, onOpenWriterAp
               </button>
             </div>
           ) : filteredArticles.length === 0 ? (
-            <div className="text-center py-12 px-4 bg-neutral-900/50 rounded-2xl border border-neutral-800 space-y-3">
-              <BookOpen className="w-8 h-8 text-amber-400 mx-auto" />
-              <h3 className="text-sm font-bold text-white">No articles found</h3>
+            <div className="text-center py-12 px-4 bg-neutral-900/50 rounded-2xl border border-neutral-800 space-y-2">
+              <BookOpen className="w-8 h-8 text-neutral-500 mx-auto" />
+              <h3 className="text-sm font-bold text-white">
+                {selectedCategory !== 'For You' && selectedCategory !== 'Trending' && selectedCategory !== 'Latest'
+                  ? `No articles in ${selectedCategory}`
+                  : 'No articles yet'}
+              </h3>
               <p className="text-xs text-neutral-400 max-w-xs mx-auto">
-                {selectedCategory !== 'All'
-                  ? `There are no articles in "${selectedCategory}" yet.`
-                  : 'Be the first approved scholar to publish an article!'}
+                No articles yet. Check back soon.
               </p>
-              <button
-                type="button"
-                onClick={handleWriteClick}
-                className="px-4 py-2 bg-amber-500 text-neutral-950 font-bold rounded-xl text-xs cursor-pointer hover:bg-amber-400"
-              >
-                Write an Article
-              </button>
+              {isApprovedWriter && (
+                <button
+                  type="button"
+                  onClick={handleWriteClick}
+                  className="px-4 py-2 bg-amber-500 text-neutral-950 font-bold rounded-xl text-xs cursor-pointer hover:bg-amber-400 mt-2"
+                >
+                  Write an Article
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -368,13 +413,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onBack, onOpenWriterAp
                 Scholars with approved publishing privileges on CampusFoundry
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleWriteClick}
-              className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-amber-400 text-xs font-bold border border-amber-500/30 transition-colors cursor-pointer"
-            >
-              Apply to Write
-            </button>
+            {!isApprovedWriter && (
+              <button
+                type="button"
+                onClick={() => navigate('/write')}
+                className="text-xs text-neutral-400 hover:text-amber-400 transition-colors cursor-pointer font-medium hover:underline"
+              >
+                Become a Writer
+              </button>
+            )}
           </div>
 
           {isLoadingWriters && writers.length === 0 ? (
@@ -403,19 +450,21 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onBack, onOpenWriterAp
               </button>
             </div>
           ) : filteredWriters.length === 0 ? (
-            <div className="text-center py-12 px-4 bg-neutral-900/50 rounded-2xl border border-neutral-800 space-y-3">
-              <Users className="w-8 h-8 text-amber-400 mx-auto" />
+            <div className="text-center py-12 px-4 bg-neutral-900/50 rounded-2xl border border-neutral-800 space-y-2">
+              <Users className="w-8 h-8 text-neutral-500 mx-auto" />
               <h3 className="text-sm font-bold text-white">No writers found</h3>
               <p className="text-xs text-neutral-400 max-w-xs mx-auto">
-                No approved writers match your query. Apply to become the next verified contributor!
+                No approved writers match your query.
               </p>
-              <button
-                type="button"
-                onClick={handleWriteClick}
-                className="px-4 py-2 bg-amber-500 text-neutral-950 font-bold rounded-xl text-xs cursor-pointer hover:bg-amber-400"
-              >
-                Become a Writer
-              </button>
+              {!isApprovedWriter && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/write')}
+                  className="text-xs text-neutral-400 hover:text-amber-400 transition-colors cursor-pointer font-medium hover:underline mt-1"
+                >
+                  Become a Writer
+                </button>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">

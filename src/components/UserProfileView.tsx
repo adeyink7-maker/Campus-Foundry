@@ -52,6 +52,7 @@ export interface UserProfileViewProps {
   onOpenCreateBusiness?: () => void;
   onSelectBusiness?: (biz: StudentBusiness) => void;
   onOpenTraderProfile?: (biz: StudentBusiness) => void;
+  onOpenBecomeTrader?: () => void;
 }
 
 export const UserProfileView: React.FC<UserProfileViewProps> = ({
@@ -62,6 +63,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   onOpenCreatePost,
   onOpenCreateBusiness,
   onSelectBusiness,
+  onOpenBecomeTrader,
 }) => {
   const navigate = useNavigate();
   const { currentUser, toggleFollowUser, signOut, syncUserProfileFromSupabase, updateUser } = useAuth();
@@ -79,6 +81,13 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
   const [isApprovedWriter, setIsApprovedWriter] = useState(false);
 
+  const isTrader = Boolean(
+    activeUser &&
+    (activeUser.accountType === 'TRADER' ||
+     activeUser.role === 'trader' ||
+     userBusinesses.length > 0)
+  );
+
   useEffect(() => {
     if (activeUser?.id) {
       setIsLoadingArticles(true);
@@ -89,6 +98,15 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
       checkIsApprovedWriter(activeUser.id).then(setIsApprovedWriter);
     }
   }, [activeUser?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'articles' && !isApprovedWriter && !isLoadingArticles) {
+      setActiveTab('posts');
+    }
+    if (activeTab === 'products' && !isTrader) {
+      setActiveTab('posts');
+    }
+  }, [activeTab, isApprovedWriter, isTrader, isLoadingArticles]);
 
   useEffect(() => {
     if (isOwner && currentUser?.id) {
@@ -270,24 +288,28 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             <div className="flex items-center justify-center sm:justify-end gap-2 self-center sm:self-end">
               {isOwner ? (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/write')}
-                    className="px-3.5 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-neutral-950 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95"
-                    title="Write a new article"
-                  >
-                    <PenLine className="h-3.5 w-3.5" />
-                    <span>Write</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/my-articles')}
-                    className="px-3 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-bold border border-neutral-700 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                    title="My Articles"
-                  >
-                    <FileText className="h-3.5 w-3.5 text-orange-400" />
-                    <span>Articles</span>
-                  </button>
+                  {isApprovedWriter && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/write')}
+                        className="px-3.5 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-neutral-950 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95"
+                        title="Write a new article"
+                      >
+                        <PenLine className="h-3.5 w-3.5" />
+                        <span>Write</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/my-articles')}
+                        className="px-3 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-bold border border-neutral-700 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                        title="My Articles"
+                      >
+                        <FileText className="h-3.5 w-3.5 text-orange-400" />
+                        <span>Articles</span>
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => setIsEditModalOpen(true)}
@@ -486,31 +508,35 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
           <span>Posts</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('articles')}
-          className={`flex items-center gap-2 py-3 px-3 sm:px-4 border-b-2 transition-all cursor-pointer ${
-            activeTab === 'articles'
-              ? 'border-orange-500 text-orange-400 font-extrabold'
-              : 'border-transparent hover:text-white'
-          }`}
-        >
-          <BookOpen className="h-4 w-4" />
-          <span>Articles {authorArticles.length > 0 && `(${authorArticles.length})`}</span>
-        </button>
+        {isApprovedWriter && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('articles')}
+            className={`flex items-center gap-2 py-3 px-3 sm:px-4 border-b-2 transition-all cursor-pointer ${
+              activeTab === 'articles'
+                ? 'border-orange-500 text-orange-400 font-extrabold'
+                : 'border-transparent hover:text-white'
+            }`}
+          >
+            <BookOpen className="h-4 w-4" />
+            <span>Articles {authorArticles.length > 0 && `(${authorArticles.length})`}</span>
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('products')}
-          className={`flex items-center gap-2 py-3 px-3 sm:px-4 border-b-2 transition-all cursor-pointer ${
-            activeTab === 'products'
-              ? 'border-orange-500 text-orange-400 font-extrabold'
-              : 'border-transparent hover:text-white'
-          }`}
-        >
-          <ShoppingBag className="h-4 w-4" />
-          <span>Products {productsCount > 0 && `(${productsCount})`}</span>
-        </button>
+        {isTrader && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('products')}
+            className={`flex items-center gap-2 py-3 px-3 sm:px-4 border-b-2 transition-all cursor-pointer ${
+              activeTab === 'products'
+                ? 'border-orange-500 text-orange-400 font-extrabold'
+                : 'border-transparent hover:text-white'
+            }`}
+          >
+            <ShoppingBag className="h-4 w-4" />
+            <span>Products {productsCount > 0 && `(${productsCount})`}</span>
+          </button>
+        )}
 
         {isOwner && (
           <button
@@ -614,13 +640,13 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         )}
 
         {/* TAB: ARTICLES (Published articles by author) */}
-        {activeTab === 'articles' && (
+        {activeTab === 'articles' && isApprovedWriter && (
           <div>
             <div className="flex items-center justify-between mb-4 px-1">
               <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">
                 Published Articles ({authorArticles.length})
               </h3>
-              {isOwner && (
+              {isOwner && isApprovedWriter && (
                 <button
                   type="button"
                   onClick={() => navigate('/write')}
@@ -652,7 +678,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 <p className="text-xs text-neutral-400 max-w-xs mb-4">
                   {isOwner ? 'Share deep insights, project write-ups, or campus guides.' : `${activeUser.fullName} has not published any articles yet.`}
                 </p>
-                {isOwner && (
+                {isOwner && isApprovedWriter && (
                   <button
                     type="button"
                     onClick={() => navigate('/write')}
@@ -712,13 +738,13 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         )}
 
         {/* TAB 2: PRODUCTS (Marketplace listings) */}
-        {activeTab === 'products' && (
+        {activeTab === 'products' && isTrader && (
           <div>
             <div className="flex items-center justify-between mb-4 px-1">
               <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">
                 Marketplace Listings ({userBusinesses.length})
               </h3>
-              {isOwner && onOpenCreateBusiness && (
+              {isOwner && isTrader && onOpenCreateBusiness && (
                 <button
                   type="button"
                   onClick={onOpenCreateBusiness}
@@ -737,7 +763,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 <p className="text-xs text-neutral-400 max-w-xs mb-4">
                   {isOwner ? 'Turn your skills or items into campus listings.' : 'This user has no active trade listings.'}
                 </p>
-                {isOwner && onOpenCreateBusiness && (
+                {isOwner && isTrader && onOpenCreateBusiness && (
                   <button
                     type="button"
                     onClick={onOpenCreateBusiness}
@@ -971,6 +997,27 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                   {currentUser?.isVerified ? 'Verified ✓' : 'Get verified'}
                 </span>
               </button>
+
+              {isOwner && !isTrader && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSettingsOpen(false);
+                    if (onOpenBecomeTrader) {
+                      onOpenBecomeTrader();
+                    } else if (onOpenCreateBusiness) {
+                      onOpenCreateBusiness();
+                    }
+                  }}
+                  className="w-full p-3 rounded-2xl bg-neutral-950 border border-neutral-800 hover:border-amber-500/40 flex items-center justify-between text-amber-400 cursor-pointer transition-colors"
+                >
+                  <span className="flex items-center gap-2 font-medium">
+                    <Store className="h-4 w-4 text-amber-400" />
+                    <span>Start Selling</span>
+                  </span>
+                  <span className="text-[10px] text-amber-400/80 font-bold">Register Business &rarr;</span>
+                </button>
+              )}
             </div>
 
             <div className="pt-2 border-t border-neutral-800">
