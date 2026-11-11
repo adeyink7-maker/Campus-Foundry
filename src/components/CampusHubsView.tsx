@@ -203,13 +203,25 @@ export const CampusHubsView: React.FC<CampusHubsViewProps> = ({
                     loading="lazy"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <h3 className="text-sm font-bold text-white truncate">{club.name}</h3>
                       {club.isVerified && <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                      {club.statusBadge && (
+                        <span className="inline-flex items-center px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                          {club.statusBadge}
+                        </span>
+                      )}
                     </div>
-                    <span className="text-[10px] text-purple-400 font-mono block">
-                      {club.membersCount || 0} Members
-                    </span>
+                    {club.tagline && (
+                      <p className="text-[10px] text-[#FF7A1A] truncate font-semibold mt-0.5">
+                        {club.tagline}
+                      </p>
+                    )}
+                    {club.membersCount && club.membersCount > 0 ? (
+                      <span className="text-[10px] text-purple-400 font-mono block mt-0.5">
+                        {club.membersCount === 1 ? '1 Member' : `${club.membersCount} Members`}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
                 <p className="text-xs text-neutral-400 line-clamp-2">{club.description}</p>

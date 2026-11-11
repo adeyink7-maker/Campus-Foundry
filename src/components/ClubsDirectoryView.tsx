@@ -153,16 +153,26 @@ export const ClubsDirectoryView: React.FC<ClubsDirectoryViewProps> = ({
                     loading="lazy"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <h3 className="text-base font-bold text-white leading-snug truncate">{club.name}</h3>
                       {club.isVerified && (
                         <span title="Verified Page">
                           <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
                         </span>
                       )}
+                      {club.statusBadge && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                          {club.statusBadge}
+                        </span>
+                      )}
                     </div>
-                    <span className="text-[10px] font-mono text-purple-400 uppercase tracking-wider block">
-                      {club.membersCount || 0} Members • {club.joinMode} join
+                    {club.tagline && (
+                      <p className="text-[11px] font-semibold text-[#FF7A1A] truncate mt-0.5">
+                        {club.tagline}
+                      </p>
+                    )}
+                    <span className="text-[10px] font-mono text-purple-400 uppercase tracking-wider block mt-0.5">
+                      {club.membersCount && club.membersCount > 0 ? `${club.membersCount === 1 ? '1 Member' : `${club.membersCount} Members`} • ` : ''}{club.joinMode} join
                     </span>
                   </div>
                 </div>

@@ -14,6 +14,10 @@
   code, pre, .font-mono {
     font-family: 'JetBrains Mono', monospace;
   }
+
+  .font-serif {
+    font-family: 'Lora', 'Playfair Display', Georgia, Cambria, 'Times New Roman', serif;
+  }
 }
 
 /* High contrast secondary text override */

@@ -319,10 +319,9 @@ function MainApp() {
     setPostsError(null);
     setSnapsError(null);
     try {
-      await Promise.all([
-        deletePostsByUserInSupabase('adeyiink7'),
-        deletePostsByUserInSupabase('adeyink7'),
-      ]);
+      // Background non-blocking cleanup of test accounts if needed
+      deletePostsByUserInSupabase('adeyiink7').catch(() => {});
+      deletePostsByUserInSupabase('adeyink7').catch(() => {});
 
       const [remotePosts, remoteSnaps, pagePosts] = await Promise.all([
         fetchCampusPostsFromSupabase(),

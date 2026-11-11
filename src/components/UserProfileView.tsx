@@ -35,13 +35,16 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
 import { emitAppToast } from '../services/supabase';
-import { AppUser, CampusPost, CampusSnap, StudentBusiness } from '../types';
+import { AppUser, CampusPost, CampusSnap, StudentBusiness, UserLeadershipRole } from '../types';
 import { fetchUserPublishedArticles, fetchUserSavedArticles } from '../services/articles';
 import { checkIsApprovedWriter } from '../services/writers';
+import { fetchUserLeadershipRoles } from '../services/supabase';
 import type { ArticleWithAuthor } from '../types/articles';
 import { EditProfileModal } from './EditProfileModal';
 import { VerificationModal } from './VerificationModal';
 import { StudentIDCard } from './playercard/StudentIDCard';
+import { LeadershipRoleBadge } from './LeadershipRoleBadge';
+import { PageProfileModal } from './PageProfileModal';
 
 export interface UserProfileViewProps {
   user?: AppUser | null;
@@ -80,6 +83,12 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [isLoadingArticles, setIsLoadingArticles] = useState(false);
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
   const [isApprovedWriter, setIsApprovedWriter] = useState(false);
+  const [leadershipRoles, setLeadershipRoles] = useState<UserLeadershipRole[]>([]);
+  const [showAllLeadershipRoles, setShowAllLeadershipRoles] = useState(false);
+  const [selectedLeaderPageModal, setSelectedLeaderPageModal] = useState<any | null>(null);
+
+  const visibleLeadershipRoles = showAllLeadershipRoles ? leadershipRoles : leadershipRoles.slice(0, 2);
+  const remainingRolesCount = leadershipRoles.length - visibleLeadershipRoles.length;
 
   const isTrader = Boolean(
     activeUser &&
@@ -96,6 +105,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         .finally(() => setIsLoadingArticles(false));
 
       checkIsApprovedWriter(activeUser.id).then(setIsApprovedWriter);
+      fetchUserLeadershipRoles(activeUser.id).then(setLeadershipRoles);
     }
   }, [activeUser?.id]);
 
@@ -420,6 +430,54 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 <p className="text-xs font-mono text-neutral-400 font-semibold mt-0.5">
                   {displayUsername}
                 </p>
+
+                {/* Derived Page Leadership Role Lines */}
+                {leadershipRoles.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {visibleLeadershipRoles.map((roleItem) => (
+                      <button
+                        key={`${roleItem.pageId}_${roleItem.role}`}
+                        type="button"
+                        onClick={() => {
+                          setSelectedLeaderPageModal({
+                            id: roleItem.pageId,
+                            name: roleItem.pageName,
+                            slug: roleItem.pageSlug,
+                            type: roleItem.pageType,
+                            logoUrl: roleItem.pageLogoUrl,
+                            status: 'approved',
+                            joinMode: 'open',
+                            isVerified: true,
+                            createdAt: new Date().toISOString(),
+                            description: '',
+                          });
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-800/90 text-xs font-semibold text-neutral-200 transition-all cursor-pointer group shrink-0"
+                        title={`Open ${roleItem.pageName}`}
+                      >
+                        <LeadershipRoleBadge
+                          label={roleItem.label}
+                          pageType={roleItem.pageType}
+                          size="xs"
+                        />
+                        <span className="text-neutral-400 font-normal">·</span>
+                        <span className="font-bold text-white group-hover:text-[#FF7A1A] transition-colors truncate">
+                          {roleItem.pageName}
+                        </span>
+                      </button>
+                    ))}
+
+                    {remainingRolesCount > 0 && !showAllLeadershipRoles && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllLeadershipRoles(true)}
+                        className="text-[11px] font-bold text-orange-400 hover:underline block mt-0.5 cursor-pointer"
+                      >
+                        +{remainingRolesCount} more
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Tappable Stats Row */}
@@ -1095,6 +1153,15 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Page Profile Modal triggered by leadership role line */}
+      {selectedLeaderPageModal && (
+        <PageProfileModal
+          isOpen={!!selectedLeaderPageModal}
+          onClose={() => setSelectedLeaderPageModal(null)}
+          page={selectedLeaderPageModal}
+        />
       )}
 
     </div>

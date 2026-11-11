@@ -425,6 +425,8 @@ export interface CampusPost {
   pageType?: 'club' | 'news';
   pageIsVerified?: boolean;
   isBreaking?: boolean;
+  authorLeadershipRole?: string;
+  authorLeadershipLabel?: string;
 }
 
 export interface SnapViewerRecord {
@@ -812,10 +814,41 @@ export interface DashboardStats {
 export type HubPageType = 'club' | 'news';
 export type PageJoinMode = 'open' | 'request' | 'follow_only';
 export type PageStatus = 'pending' | 'approved' | 'rejected';
-export type PageMemberRole = 'owner' | 'admin' | 'member' | 'follower';
+export type PageMemberRole = 
+  | 'owner' 
+  | 'admin' 
+  | 'co_lead' 
+  | 'moderator' 
+  | 'editor_in_chief' 
+  | 'editor' 
+  | 'official' 
+  | 'member' 
+  | 'follower';
 export type PageMemberStatus = 'active' | 'pending';
 export type PagePostKind = 'announcement' | 'event' | 'poll' | 'article' | 'breaking';
 export type PagePostStatus = 'published' | 'pending' | 'removed';
+
+export interface PageLeader {
+  userId: string;
+  fullName: string;
+  username: string;
+  avatarUrl?: string;
+  role: PageMemberRole;
+  label: string; // e.g. "Club Head", "Co-lead", "Moderator", "Editor-in-Chief", "Editor", "Official Account"
+  pageId: string;
+  pageName: string;
+  pageType: HubPageType;
+}
+
+export interface UserLeadershipRole {
+  pageId: string;
+  pageName: string;
+  pageSlug: string;
+  pageType: HubPageType;
+  role: PageMemberRole;
+  label: string;
+  pageLogoUrl?: string;
+}
 
 export interface HubPage {
   id: string;
@@ -825,12 +858,34 @@ export interface HubPage {
   description: string;
   logoUrl?: string;
   coverUrl?: string;
-  ownerId: string;
+  ownerId?: string | null;
+  ownerEmail?: string | null;
   isVerified: boolean;
   joinMode: PageJoinMode;
   status: PageStatus;
   note?: string;
   createdAt: string;
+
+  // Club & Page rich metadata
+  tagline?: string;
+  motto?: string;
+  category?: string;
+  statusBadge?: string; // e.g. "Newly launched"
+  launchDate?: string;
+  activities?: string[];
+  membershipFee?: string;
+  membershipInfo?: string;
+  brandColors?: {
+    primary?: string; // e.g. "#FF7A1A"
+    accent?: string;  // e.g. soft green
+    cream?: string;   // e.g. cream background
+  };
+  externalLinks?: {
+    joinFormUrl?: string;
+    instagramUrl?: string;
+    tiktokHandle?: string;
+  };
+
   // Joined or computed properties
   membersCount?: number;
   followersCount?: number;
@@ -872,6 +927,11 @@ export interface PagePost {
   pageLogoUrl?: string;
   pageType?: HubPageType;
   pageIsVerified?: boolean;
+  authorName?: string;
+  authorUsername?: string;
+  authorAvatarUrl?: string;
+  authorLeadershipRole?: string;
+  authorLeadershipLabel?: string;
 }
 
 export interface PageReport {

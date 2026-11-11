@@ -16,7 +16,11 @@ import type {
   UserRole,
   PagePostStatus,
   PageMemberStatus,
-  PageStatus
+  PageStatus,
+  PageLeader,
+  UserLeadershipRole,
+  PageMemberRole,
+  HubPageType
 } from "../types";
 
 function isLikelyApiKey(val) {
@@ -669,12 +673,22 @@ export async function deletePostsByUserInSupabase(usernameOrQuery) {
     const filterConditions = isUuid ? `author_username.ilike.%${query}%,author_name.ilike.%${query}%,author_id.eq.${query}` : `author_username.ilike.%${query}%,author_name.ilike.%${query}%`;
     const { data, error: error2 } = await supabase.from("campus_posts").delete().or(filterConditions).select("id");
     if (error2) {
-      console.error("[Supabase deletePostsByUser Error]:", error2);
+      const msg = (typeof error2 === "string" ? error2 : error2.message || "").toLowerCase();
+      if (msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("load failed")) {
+        console.warn("[Supabase deletePostsByUser Warning (Offline/Network)]:", error2.message || error2);
+      } else {
+        console.error("[Supabase deletePostsByUser Error]:", error2);
+      }
       return 0;
     }
     return (data == null ? void 0 : data.length) || 0;
-  } catch (err) {
-    console.error("[Supabase deletePostsByUser Exception]:", err);
+  } catch (err: any) {
+    const msg = (err?.message || err || "").toString().toLowerCase();
+    if (msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("load failed")) {
+      console.warn("[Supabase deletePostsByUser Warning (Offline/Network)]:", err?.message || err);
+    } else {
+      console.error("[Supabase deletePostsByUser Exception]:", err);
+    }
     return 0;
   }
 }
@@ -1282,9 +1296,203 @@ export async function insertChatMessageInSupabase(msg: any, authUid?: string): P
     throw error2;
   }
 }
+export interface ClubActivityItem {
+  id: string;
+  name: string;
+  description?: string;
+  iconName: string;
+}
+
+export const CHAPTER_AND_CO_ACTIVITIES: ClubActivityItem[] = [
+  {
+    id: 'book-of-the-month',
+    name: 'Book of the Month',
+    description: '',
+    iconName: 'BookOpen',
+  },
+  {
+    id: 'physical-meetups',
+    name: 'Physical Meetups',
+    description: '',
+    iconName: 'Users',
+  },
+  {
+    id: 'members-picks',
+    name: "Member's Picks",
+    description: '',
+    iconName: 'Sparkles',
+  },
+  {
+    id: 'virtual-discussions',
+    name: 'Virtual Discussions',
+    description: '',
+    iconName: 'Headphones',
+  },
+  {
+    id: 'guest-sessions',
+    name: 'Guest Sessions',
+    description: '',
+    iconName: 'Mic',
+  },
+  {
+    id: 'read-and-chill',
+    name: 'Read and Chill',
+    description: '',
+    iconName: 'Coffee',
+  },
+  {
+    id: 'chapter-chat',
+    name: 'Chapter Chat',
+    description: '',
+    iconName: 'MessageCircle',
+  },
+  {
+    id: 'page-talk',
+    name: 'Page Talk',
+    description: '',
+    iconName: 'Bookmark',
+  },
+];
+
+export const SEEDED_CHAPTER_AND_CO_PAGE: HubPage = {
+  id: 'c4a973a0-9e6e-44ef-94c6-e91d6df4b001',
+  type: 'club',
+  name: 'Chapter & Co Book Club',
+  slug: 'chapter-and-co-book-club',
+  description: "What if reading became more than just a personal activity? What if it became an opportunity to connect with people, exchange ideas, discover new perspectives and grow together? That's the idea behind Chapter & Co. If you've been looking for a community that inspires you to read, think, connect and grow, this is your invitation. Join us as one of our founding members!",
+  tagline: 'Read. Reflect. Connect.',
+  motto: 'Creativity is intelligence having fun.',
+  category: 'Books & Reading',
+  statusBadge: 'Newly launched',
+  launchDate: '9 November 2026',
+  activities: [
+    'Book of the Month',
+    'Physical Meetups',
+    'Member\'s Picks',
+    'Virtual Discussions',
+    'Guest Sessions',
+    'Read and Chill',
+    'Chapter Chat',
+    'Page Talk',
+  ],
+  membershipFee: '₦2,000, one-time payment',
+  membershipInfo: 'Payment and registration are handled by the club, not inside the app.',
+  brandColors: {
+    primary: '#FF7A1A',
+    accent: '#10B981',
+    cream: '#FFFDF7',
+  },
+  externalLinks: {
+    joinFormUrl: 'https://forms.gle/PH2wLwkGVrtPKs16A',
+    instagramUrl: 'https://www.instagram.com/ilorin_bookclub',
+    tiktokHandle: 'ilorin_bookclub',
+  },
+  ownerId: null,
+  ownerEmail: 'akanbighaniyat896@gmail.com',
+  isVerified: true,
+  joinMode: 'open',
+  status: 'approved',
+  note: 'Admin-seeded Club Page',
+  logoUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=400&auto=format&fit=crop&q=80',
+  coverUrl: 'https://images.unsplash.com/photo-1457369804613-52c61a468e7d?w=1200&auto=format&fit=crop&q=80',
+  createdAt: '2026-11-09T08:00:00Z',
+  membersCount: 0,
+  followersCount: 0,
+};
+
+export async function ensurePageRecordExists(
+  pageId: string,
+  fallbackPage?: HubPage,
+  userId?: string
+): Promise<boolean> {
+  if (!isSupabaseConfigured) return true;
+  const safePageId = toSafeUuid(pageId);
+  try {
+    const { data: existing } = await supabase
+      .from("pages")
+      .select("id")
+      .eq("id", safePageId)
+      .maybeSingle();
+
+    if (existing && existing.id) {
+      return true;
+    }
+
+    const p = fallbackPage || (safePageId === toSafeUuid(SEEDED_CHAPTER_AND_CO_PAGE.id) ? SEEDED_CHAPTER_AND_CO_PAGE : null);
+    if (!p) return false;
+
+    let safeUid = userId ? toSafeUuid(userId) : null;
+    if (!safeUid) {
+      const { data: sess } = await supabase.auth.getSession();
+      if (sess?.session?.user?.id) safeUid = sess.session.user.id;
+    }
+
+    // 1. First attempt full payload with all metadata columns
+    const fullPayload: any = {
+      id: safePageId,
+      type: p.type || "club",
+      name: p.name,
+      slug: p.slug,
+      description: p.description,
+      tagline: p.tagline,
+      motto: p.motto,
+      category: p.category,
+      status_badge: p.statusBadge,
+      launch_date: p.launchDate,
+      activities: p.activities,
+      membership_fee: p.membershipFee,
+      membership_info: p.membershipInfo,
+      brand_colors: p.brandColors,
+      external_links: p.externalLinks,
+      owner_id: safeUid || undefined,
+      owner_email: p.ownerEmail || null,
+      is_verified: true,
+      join_mode: p.joinMode || "open",
+      status: "approved",
+      logo_url: p.logoUrl,
+      cover_url: p.coverUrl,
+    };
+
+    const { error: fullErr } = await supabase.from("pages").upsert(fullPayload, { onConflict: "id" });
+    if (!fullErr) return true;
+
+    // 2. If rich columns or null owner_id fail, try core guaranteed columns
+    const corePayload: any = {
+      id: safePageId,
+      type: p.type || "club",
+      name: p.name,
+      slug: p.slug,
+      description: p.description,
+      is_verified: true,
+      join_mode: p.joinMode || "open",
+      status: "approved",
+      logo_url: p.logoUrl,
+      cover_url: p.coverUrl,
+    };
+    if (safeUid) {
+      corePayload.owner_id = safeUid;
+    }
+
+    const { error: coreErr } = await supabase.from("pages").upsert(corePayload, { onConflict: "id" });
+    if (!coreErr) return true;
+
+    if (coreErr.code === "42501") {
+      corePayload.status = "pending";
+      const { error: pendErr } = await supabase.from("pages").upsert(corePayload, { onConflict: "id" });
+      if (!pendErr) return true;
+    }
+
+    console.warn("[ensurePageRecordExists notice]:", coreErr.message || fullErr?.message);
+    return false;
+  } catch (err: any) {
+    console.warn("[ensurePageRecordExists exception]:", err?.message || err);
+    return false;
+  }
+}
+
 export async function fetchPagesFromSupabase(type) {
   if (!isSupabaseConfigured) {
-    return [];
+    return (!type || type === 'club') ? [SEEDED_CHAPTER_AND_CO_PAGE] : [];
   }
   try {
     let query = supabase.from("pages").select("*").eq("status", "approved");
@@ -1293,15 +1501,20 @@ export async function fetchPagesFromSupabase(type) {
     if (error2) {
       if (isRlsOrPermissionError(error2) || isTableMissingError(error2)) {
         console.warn('[fetchPagesFromSupabase permission notice]: Table "pages" permission denied or missing. Execute migration 010_grant_hubs_pages_permissions.sql in Supabase SQL editor.', error2);
-        return [];
+        return (!type || type === 'club') ? [SEEDED_CHAPTER_AND_CO_PAGE] : [];
       }
       console.error("[fetchPagesFromSupabase error]:", error2);
-      throw new Error(error2.message || "Failed to fetch pages from Supabase");
+      return (!type || type === 'club') ? [SEEDED_CHAPTER_AND_CO_PAGE] : [];
     }
-    if (!data || data.length === 0) {
-      return [];
+
+    let rows = data || [];
+    const hasChapterAndCo = rows.some((r) => r.slug === 'chapter-and-co-book-club' || r.id === SEEDED_CHAPTER_AND_CO_PAGE.id);
+    if (!hasChapterAndCo && (!type || type === 'club')) {
+      // Background attempt to persist seed page if not in db
+      ensurePageRecordExists(SEEDED_CHAPTER_AND_CO_PAGE.id, SEEDED_CHAPTER_AND_CO_PAGE).catch(() => {});
     }
-    const pageIds = data.map((r) => r.id);
+
+    const pageIds = rows.map((r) => r.id);
     let countsMap = {};
     if (pageIds.length > 0) {
       try {
@@ -1324,29 +1537,48 @@ export async function fetchPagesFromSupabase(type) {
         console.error("[fetchPagesFromSupabase member count exception]:", cntErr);
       }
     }
-    return data.map((row) => {
+
+    const mapped = rows.map((row) => {
       var _a, _b;
+      const isChapterAndCo = row.slug === 'chapter-and-co-book-club' || row.id === SEEDED_CHAPTER_AND_CO_PAGE.id;
       return {
         id: row.id,
         type: row.type,
         name: row.name,
         slug: row.slug,
-        description: row.description || "",
-        logoUrl: row.logo_url || "",
-        coverUrl: row.cover_url || "",
-        ownerId: row.owner_id,
-        isVerified: !!row.is_verified,
+        description: row.description || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.description : ""),
+        logoUrl: row.logo_url || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.logoUrl : ""),
+        coverUrl: row.cover_url || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.coverUrl : ""),
+        ownerId: row.owner_id || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.ownerId : null),
+        ownerEmail: row.owner_email || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.ownerEmail : null),
+        isVerified: !!row.is_verified || (isChapterAndCo ? true : false),
         joinMode: row.join_mode || "open",
         status: row.status || "approved",
         note: row.note || "",
-        createdAt: row.created_at,
-        membersCount: ((_a = countsMap[row.id]) == null ? void 0 : _a.members) || 0,
-        followersCount: ((_b = countsMap[row.id]) == null ? void 0 : _b.followers) || 0
+        createdAt: row.created_at || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.createdAt : new Date().toISOString()),
+        tagline: row.tagline || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.tagline : undefined),
+        motto: row.motto || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.motto : undefined),
+        category: row.category || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.category : undefined),
+        statusBadge: row.status_badge || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.statusBadge : undefined),
+        launchDate: row.launch_date || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.launchDate : undefined),
+        activities: row.activities || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.activities : undefined),
+        membershipFee: row.membership_fee || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.membershipFee : undefined),
+        membershipInfo: row.membership_info || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.membershipInfo : undefined),
+        brandColors: row.brand_colors || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.brandColors : undefined),
+        externalLinks: row.external_links || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.externalLinks : undefined),
+        membersCount: ((_a = countsMap[row.id]) == null ? void 0 : _a.members) || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.membersCount : 0),
+        followersCount: ((_b = countsMap[row.id]) == null ? void 0 : _b.followers) || (isChapterAndCo ? SEEDED_CHAPTER_AND_CO_PAGE.followersCount : 0)
       };
     });
+
+    if (!hasChapterAndCo && (!type || type === 'club')) {
+      return [SEEDED_CHAPTER_AND_CO_PAGE, ...mapped];
+    }
+
+    return mapped;
   } catch (err) {
     console.error("[fetchPagesFromSupabase exception]:", err);
-    throw err;
+    return (!type || type === 'club') ? [SEEDED_CHAPTER_AND_CO_PAGE] : [];
   }
 }
 export async function requestPageInSupabase(payload) {
@@ -1407,22 +1639,57 @@ export async function joinOrFollowPageInSupabase(pageId, userId, targetRole, joi
     let safeUid = toSafeUuid(userId);
     const { data: sessionData } = await supabase.auth.getSession();
     if ((_b = (_a = sessionData == null ? void 0 : sessionData.session) == null ? void 0 : _a.user) == null ? void 0 : _b.id) safeUid = sessionData.session.user.id;
+    const safePageId = toSafeUuid(pageId);
+
+    // Pre-check and ensure the page record exists in public.pages before joining/following
+    await ensurePageRecordExists(safePageId, undefined, safeUid);
+
     const { error: error2 } = await supabase.from("page_members").upsert({
-      page_id: toSafeUuid(pageId),
+      page_id: safePageId,
       user_id: safeUid,
       role: targetRole,
       status: memberStatus,
       is_muted: false,
       created_at: (/* @__PURE__ */ new Date()).toISOString()
     });
+
     if (error2) {
-      console.error("[joinOrFollowPageInSupabase error]:", error2);
-      return { success: false, status: memberStatus, role: targetRole, error: error2.message };
+      // Check if error is "Page not found" (P0001) - attempt recovery by seeding and retrying once
+      if (error2.code === "P0001" || (error2.message && error2.message.includes("Page not found"))) {
+        console.warn("[joinOrFollowPageInSupabase notice]: Page not found during membership action, attempting self-heal...");
+        const healed = await ensurePageRecordExists(safePageId, undefined, safeUid);
+        if (healed) {
+          const { error: retryErr } = await supabase.from("page_members").upsert({
+            page_id: safePageId,
+            user_id: safeUid,
+            role: targetRole,
+            status: memberStatus,
+            is_muted: false,
+            created_at: (/* @__PURE__ */ new Date()).toISOString()
+          });
+          if (!retryErr) {
+            return { success: true, status: memberStatus, role: targetRole };
+          }
+        }
+      }
+
+      console.warn("[joinOrFollowPageInSupabase notice]:", error2.message || error2);
+      return {
+        success: false,
+        status: memberStatus,
+        role: targetRole,
+        error: "Unable to join this page right now. Please try again later."
+      };
     }
     return { success: true, status: memberStatus, role: targetRole };
-  } catch (e) {
-    console.error("[joinOrFollowPageInSupabase exception]:", e);
-    return { success: false, status: memberStatus, role: targetRole, error: (e == null ? void 0 : e.message) || "Membership action failed" };
+  } catch (e: any) {
+    console.warn("[joinOrFollowPageInSupabase exception]:", e?.message || e);
+    return {
+      success: false,
+      status: memberStatus,
+      role: targetRole,
+      error: "Membership action could not be completed. Please try again."
+    };
   }
 }
 export async function leaveOrUnfollowPageInSupabase(pageId, userId) {
@@ -1436,12 +1703,12 @@ export async function leaveOrUnfollowPageInSupabase(pageId, userId) {
     if ((_b = (_a = sessionData == null ? void 0 : sessionData.session) == null ? void 0 : _a.user) == null ? void 0 : _b.id) safeUid = sessionData.session.user.id;
     const { error: error2 } = await supabase.from("page_members").delete().eq("page_id", toSafeUuid(pageId)).eq("user_id", safeUid);
     if (error2) {
-      console.error("[leaveOrUnfollowPageInSupabase error]:", error2);
+      console.warn("[leaveOrUnfollowPageInSupabase notice]:", error2.message || error2);
       return { success: false, error: error2.message };
     }
     return { success: true };
-  } catch (e) {
-    console.error("[leaveOrUnfollowPageInSupabase exception]:", e);
+  } catch (e: any) {
+    console.warn("[leaveOrUnfollowPageInSupabase exception]:", e?.message || e);
     return { success: false, error: (e == null ? void 0 : e.message) || "Failed to leave page" };
   }
 }
@@ -1517,6 +1784,238 @@ export async function fetchPageMembersFromSupabase(pageId) {
     throw err;
   }
 }
+export function getPageLeadershipLabel(pageType?: HubPageType | string, role?: PageMemberRole | string): string {
+  const normRole = (role || '').toLowerCase();
+  const isClub = pageType === 'club';
+  const isNews = pageType === 'news';
+
+  if (isClub) {
+    if (normRole === 'owner') return 'Club Head';
+    if (normRole === 'admin' || normRole === 'co_lead') return 'Co-lead';
+    if (normRole === 'moderator') return 'Moderator';
+  } else if (isNews) {
+    if (normRole === 'owner' || normRole === 'editor_in_chief') return 'Editor-in-Chief';
+    if (normRole === 'admin' || normRole === 'editor') return 'Editor';
+    if (normRole === 'moderator') return 'Moderator';
+  }
+
+  // Fallbacks / general organisations
+  if (normRole === 'owner') return isClub ? 'Club Head' : isNews ? 'Editor-in-Chief' : 'Official Account';
+  if (normRole === 'admin' || normRole === 'co_lead') return isClub ? 'Co-lead' : 'Editor';
+  if (normRole === 'moderator') return 'Moderator';
+  if (normRole === 'editor_in_chief') return 'Editor-in-Chief';
+  if (normRole === 'editor') return 'Editor';
+  if (normRole === 'official') return 'Official Account';
+
+  return 'Official Account';
+}
+
+export async function fetchPageLeadership(
+  pageId: string,
+  pageType: HubPageType = 'club',
+  ownerId?: string | null,
+  ownerEmail?: string | null
+): Promise<PageLeader[]> {
+  if (!isSupabaseConfigured || !pageId) return [];
+  try {
+    const safePageId = toSafeUuid(pageId);
+    let resolvedOwnerId = ownerId ? toSafeUuid(ownerId) : null;
+    let resolvedOwnerEmail = ownerEmail || null;
+    let resolvedPageName = '';
+
+    // Check page details if owner is not resolved
+    const { data: pageRow } = await supabase
+      .from('pages')
+      .select('id, name, type, owner_id, owner_email')
+      .eq('id', safePageId)
+      .maybeSingle();
+
+    if (pageRow) {
+      if (!resolvedOwnerId && pageRow.owner_id) resolvedOwnerId = pageRow.owner_id;
+      if (!resolvedOwnerEmail && pageRow.owner_email) resolvedOwnerEmail = pageRow.owner_email;
+      if (pageRow.name) resolvedPageName = pageRow.name;
+      if (pageRow.type) pageType = pageRow.type as HubPageType;
+    }
+
+    if (!resolvedOwnerId && resolvedOwnerEmail) {
+      const { data: profRow } = await supabase
+        .from('profiles')
+        .select('id')
+        .ilike('email', resolvedOwnerEmail.trim().toLowerCase())
+        .maybeSingle();
+      if (profRow?.id) resolvedOwnerId = profRow.id;
+    }
+
+    const { data: memberRows, error: memberErr } = await supabase
+      .from('page_members')
+      .select('id, page_id, user_id, role, status')
+      .eq('page_id', safePageId)
+      .eq('status', 'active')
+      .in('role', ['owner', 'admin', 'co_lead', 'moderator', 'editor_in_chief', 'editor', 'official']);
+
+    if (memberErr && !isRlsOrPermissionError(memberErr)) {
+      console.warn('[fetchPageLeadership members query warning]:', memberErr);
+    }
+
+    const leadersMap = new Map<string, { role: PageMemberRole }>();
+
+    if (resolvedOwnerId) {
+      leadersMap.set(resolvedOwnerId, { role: 'owner' });
+    }
+
+    if (memberRows && memberRows.length > 0) {
+      for (const m of memberRows) {
+        if (!leadersMap.has(m.user_id)) {
+          leadersMap.set(m.user_id, { role: m.role as PageMemberRole });
+        }
+      }
+    }
+
+    const userIds = Array.from(leadersMap.keys());
+    if (userIds.length === 0) return [];
+
+    const { data: profs, error: profErr } = await supabase
+      .from('profiles')
+      .select('id, full_name, username, avatar_url, email')
+      .in('id', userIds);
+
+    if (profErr) {
+      console.warn('[fetchPageLeadership profiles query warning]:', profErr);
+    }
+
+    const profMap = new Map<string, any>();
+    if (profs) {
+      profs.forEach((p) => profMap.set(p.id, p));
+    }
+
+    const leaders: PageLeader[] = [];
+    for (const [userId, { role }] of leadersMap.entries()) {
+      const p = profMap.get(userId);
+      const fullName = p?.full_name || (userId === resolvedOwnerId ? 'Club Head' : 'Leader');
+      const username = p?.username || (p?.email ? `@${p.email.split('@')[0]}` : `@leader_${userId.slice(0, 5)}`);
+      const avatarUrl = p?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`;
+      const label = getPageLeadershipLabel(pageType, role);
+
+      leaders.push({
+        userId,
+        fullName,
+        username,
+        avatarUrl,
+        role,
+        label,
+        pageId: safePageId,
+        pageName: resolvedPageName || (pageType === 'club' ? 'Club' : 'Page'),
+        pageType,
+      });
+    }
+
+    // Sort: owner ('Club Head' / 'Editor-in-Chief') first, then co-leads, then moderators
+    leaders.sort((a, b) => {
+      if (a.role === 'owner') return -1;
+      if (b.role === 'owner') return 1;
+      return 0;
+    });
+
+    return leaders;
+  } catch (err) {
+    console.error('[fetchPageLeadership error]:', err);
+    return [];
+  }
+}
+
+export async function fetchUserLeadershipRoles(userId: string): Promise<UserLeadershipRole[]> {
+  if (!isSupabaseConfigured || !userId) return [];
+  try {
+    const safeUserId = toSafeUuid(userId);
+    const results: UserLeadershipRole[] = [];
+    const seenPages = new Set<string>();
+
+    // 1. Pages owned by user
+    const { data: ownedPages } = await supabase
+      .from('pages')
+      .select('id, name, slug, type, logo_url')
+      .eq('owner_id', safeUserId)
+      .eq('status', 'approved');
+
+    if (ownedPages) {
+      for (const p of ownedPages) {
+        if (!seenPages.has(p.id)) {
+          seenPages.add(p.id);
+          results.push({
+            pageId: p.id,
+            pageName: p.name,
+            pageSlug: p.slug,
+            pageType: p.type as HubPageType,
+            role: 'owner',
+            label: getPageLeadershipLabel(p.type, 'owner'),
+            pageLogoUrl: p.logo_url,
+          });
+        }
+      }
+    }
+
+    // 2. Pages where user is active leader in page_members
+    const { data: memberRows } = await supabase
+      .from('page_members')
+      .select('page_id, role, pages:page_id(id, name, slug, type, logo_url, status)')
+      .eq('user_id', safeUserId)
+      .eq('status', 'active')
+      .in('role', ['owner', 'admin', 'co_lead', 'moderator', 'editor_in_chief', 'editor', 'official']);
+
+    if (memberRows) {
+      for (const row of memberRows) {
+        const page = (row as any).pages;
+        if (page && page.status === 'approved' && !seenPages.has(page.id)) {
+          seenPages.add(page.id);
+          results.push({
+            pageId: page.id,
+            pageName: page.name,
+            pageSlug: page.slug,
+            pageType: page.type as HubPageType,
+            role: row.role as PageMemberRole,
+            label: getPageLeadershipLabel(page.type, row.role),
+            pageLogoUrl: page.logo_url,
+          });
+        }
+      }
+    }
+
+    return results;
+  } catch (err) {
+    console.error('[fetchUserLeadershipRoles error]:', err);
+    return [];
+  }
+}
+
+export async function updatePageMemberRoleInSupabase(
+  pageId: string,
+  userId: string,
+  newRole: PageMemberRole
+): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) {
+    return { success: false, error: 'Database not connected' };
+  }
+  try {
+    const safePageId = toSafeUuid(pageId);
+    const safeUserId = toSafeUuid(userId);
+
+    const { error } = await supabase
+      .from('page_members')
+      .update({ role: newRole })
+      .eq('page_id', safePageId)
+      .eq('user_id', safeUserId);
+
+    if (error) {
+      console.error('[updatePageMemberRoleInSupabase error]:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.error('[updatePageMemberRoleInSupabase exception]:', err);
+    return { success: false, error: err?.message || 'Failed to update member role' };
+  }
+}
+
 export async function fetchPagePostsFromSupabase(pageId?: string, pageNum: number = 1, pageSize: number = 20): Promise<any[]> {
   if (!isSupabaseConfigured) {
     return [];
@@ -1538,25 +2037,77 @@ export async function fetchPagePostsFromSupabase(pageId?: string, pageNum: numbe
     if (!data || data.length === 0) {
       return [];
     }
-    return data.map((row) => ({
-      id: row.id,
-      pageId: row.page_id,
-      authorId: row.author_id,
-      kind: row.kind,
-      title: row.title,
-      body: row.body,
-      imageUrl: row.image_url,
-      eventDate: row.event_date,
-      eventLocation: row.event_location,
-      pollOptions: row.poll_options,
-      isBreaking: !!row.is_breaking,
-      status: row.status as PagePostStatus,
-      createdAt: row.created_at,
-      pageName: row.page_name,
-      pageLogoUrl: row.page_logo_url,
-      pageType: row.page_type,
-      pageIsVerified: row.page_is_verified
-    }));
+
+    // Enrich author information & leadership role
+    const authorIds = [...new Set(data.map((r) => r.author_id).filter(Boolean))];
+    const pageIds = [...new Set(data.map((r) => r.page_id).filter(Boolean))];
+    const profMap: Record<string, any> = {};
+    const pageMetaMap: Record<string, any> = {};
+    const memberRoleMap: Record<string, string> = {};
+
+    if (authorIds.length > 0) {
+      try {
+        const { data: profs } = await supabase.from('profiles').select('id, full_name, username, avatar_url').in('id', authorIds);
+        if (profs) profs.forEach((p) => { profMap[p.id] = p; });
+      } catch (e) {
+        console.warn('[fetchPagePostsFromSupabase author prof warning]:', e);
+      }
+    }
+
+    if (pageIds.length > 0) {
+      try {
+        const { data: pagesData } = await supabase.from('pages').select('id, name, type, logo_url, is_verified, owner_id').in('id', pageIds);
+        if (pagesData) pagesData.forEach((pg) => { pageMetaMap[pg.id] = pg; });
+      } catch (e) {
+        console.warn('[fetchPagePostsFromSupabase pagesData warning]:', e);
+      }
+
+      try {
+        const { data: memData } = await supabase.from('page_members').select('page_id, user_id, role').in('page_id', pageIds).in('user_id', authorIds).eq('status', 'active');
+        if (memData) {
+          memData.forEach((m) => {
+            memberRoleMap[`${m.page_id}_${m.user_id}`] = m.role;
+          });
+        }
+      } catch (e) {
+        console.warn('[fetchPagePostsFromSupabase memData warning]:', e);
+      }
+    }
+
+    return data.map((row) => {
+      const prof = profMap[row.author_id];
+      const pageInfo = pageMetaMap[row.page_id];
+      const directRole = memberRoleMap[`${row.page_id}_${row.author_id}`];
+      const isOwner = pageInfo?.owner_id && pageInfo.owner_id === row.author_id;
+      const derivedRole = directRole || (isOwner ? 'owner' : 'admin');
+      const pType = row.page_type || pageInfo?.type || 'club';
+      const leadershipLabel = getPageLeadershipLabel(pType, derivedRole);
+
+      return {
+        id: row.id,
+        pageId: row.page_id,
+        authorId: row.author_id,
+        kind: row.kind,
+        title: row.title,
+        body: row.body,
+        imageUrl: row.image_url,
+        eventDate: row.event_date,
+        eventLocation: row.event_location,
+        pollOptions: row.poll_options,
+        isBreaking: !!row.is_breaking,
+        status: row.status as PagePostStatus,
+        createdAt: row.created_at,
+        pageName: row.page_name || pageInfo?.name,
+        pageLogoUrl: row.page_logo_url || pageInfo?.logo_url,
+        pageType: pType,
+        pageIsVerified: row.page_is_verified ?? pageInfo?.is_verified,
+        authorName: prof?.full_name || 'Leader',
+        authorUsername: prof?.username,
+        authorAvatarUrl: prof?.avatar_url,
+        authorLeadershipRole: derivedRole,
+        authorLeadershipLabel: leadershipLabel,
+      };
+    });
   } catch (err) {
     console.error("[fetchPagePostsFromSupabase exception]:", err);
     throw err;
@@ -1838,22 +2389,87 @@ export async function updatePageDetailsInSupabase(pageId, updates) {
     return { success: false, error: "Database not connected" };
   }
   try {
-    const payload = {};
-    if (updates.name) payload.name = updates.name;
-    if (updates.description) payload.description = updates.description;
-    if (updates.logoUrl) payload.logo_url = updates.logoUrl;
-    if (updates.coverUrl) payload.cover_url = updates.coverUrl;
-    if (updates.joinMode) payload.join_mode = updates.joinMode;
+    const payload: any = {};
+    if (updates.name !== undefined) payload.name = updates.name;
+    if (updates.description !== undefined) payload.description = updates.description;
+    if (updates.logoUrl !== undefined) payload.logo_url = updates.logoUrl;
+    if (updates.coverUrl !== undefined) payload.cover_url = updates.coverUrl;
+    if (updates.joinMode !== undefined) payload.join_mode = updates.joinMode;
+    if (updates.ownerEmail !== undefined) payload.owner_email = updates.ownerEmail;
+    if (updates.ownerId !== undefined) payload.owner_id = updates.ownerId;
+    if (updates.tagline !== undefined) payload.tagline = updates.tagline;
+    if (updates.motto !== undefined) payload.motto = updates.motto;
+    if (updates.category !== undefined) payload.category = updates.category;
+    if (updates.statusBadge !== undefined) payload.status_badge = updates.statusBadge;
+    if (updates.activities !== undefined) payload.activities = updates.activities;
+    if (updates.membershipFee !== undefined) payload.membership_fee = updates.membershipFee;
+    if (updates.membershipInfo !== undefined) payload.membership_info = updates.membershipInfo;
+    if (updates.externalLinks !== undefined) payload.external_links = updates.externalLinks;
+
     const { error: error2 } = await supabase.from("pages").update(payload).eq("id", toSafeUuid(pageId));
     if (error2) {
       console.error("[updatePageDetailsInSupabase error]:", error2);
       return { success: false, error: error2.message };
     }
     return { success: true };
-  } catch (e) {
+  } catch (e: any) {
     console.error("[updatePageDetailsInSupabase exception]:", e);
-    return { success: false, error: e == null ? void 0 : e.message };
+    return { success: false, error: e?.message || "An unexpected error occurred" };
   }
+}
+
+export async function claimOrSyncPageOwnerInSupabase(pageId: string, userId: string, userEmail: string): Promise<boolean> {
+  if (!isSupabaseConfigured || !pageId || !userId || !userEmail) return false;
+  try {
+    const safePageId = toSafeUuid(pageId);
+    const safeUserId = toSafeUuid(userId);
+
+    // Ensure the page row exists
+    await ensurePageRecordExists(safePageId, undefined, safeUserId);
+
+    // 1. Update pages owner_id if owner_email matches user's email
+    await supabase
+      .from("pages")
+      .update({ owner_id: safeUserId })
+      .eq("id", safePageId)
+      .ilike("owner_email", userEmail);
+
+    // 2. Grant owner role in page_members table
+    await supabase
+      .from("page_members")
+      .upsert({
+        page_id: safePageId,
+        user_id: safeUserId,
+        role: "owner",
+        status: "active",
+        is_muted: false,
+      }, { onConflict: "page_id,user_id" });
+
+    return true;
+  } catch (err) {
+    console.warn("[claimOrSyncPageOwnerInSupabase warning]:", err);
+    return false;
+  }
+}
+
+export async function autoAssignPageOwnerByEmail(pageId: string, ownerEmail: string): Promise<string | null> {
+  if (!isSupabaseConfigured || !pageId || !ownerEmail) return null;
+  const cleanEmail = ownerEmail.trim().toLowerCase();
+  try {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id, email")
+      .ilike("email", cleanEmail)
+      .maybeSingle();
+
+    if (profile && profile.id) {
+      await claimOrSyncPageOwnerInSupabase(pageId, profile.id, cleanEmail);
+      return profile.id;
+    }
+  } catch (err) {
+    console.warn("[autoAssignPageOwnerByEmail notice]:", err);
+  }
+  return null;
 }
 let localAdminLogs = [];
 export async function logAdminActionInSupabase(staffId, action2, targetId, details) {

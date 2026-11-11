@@ -24,6 +24,7 @@ import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
 import { emitAppToast } from '../services/supabase';
 import { LongPressAvatar } from './playercard/LongPressAvatar';
+import { LeadershipRoleBadge } from './LeadershipRoleBadge';
 
 interface PostCardProps {
   post: CampusPost;
@@ -195,8 +196,14 @@ export const PostCard: React.FC<PostCardProps> = ({
                   }`}>
                     {post.pageType === 'news' ? 'News' : 'Club'}
                   </span>
+                  {post.authorLeadershipLabel && (
+                    <LeadershipRoleBadge label={post.authorLeadershipLabel} pageType={post.pageType} size="xs" />
+                  )}
                 </div>
-                <span className="text-[10px] text-neutral-400 font-mono">Official Page Broadcast • {new Date(post.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                <span className="text-[10px] text-neutral-400 font-mono">
+                  {post.authorName ? `Posted by ${post.authorName} • ` : 'Official Page Broadcast • '}
+                  {new Date(post.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                </span>
               </div>
             </div>
           ) : (
